@@ -1,75 +1,45 @@
 :root {
-    --bg: #12151b;
-    --surface: #1a1f28;
-    --surface-2: #232936;
-    --surface-3: #2a3140;
-    --border: #2e3543;
-    --border-soft: #242a36;
-    --text: #e7eaf0;
-    --text-muted: #8891a3;
-    --text-dim: #5c6474;
-    --cyan: #5fe0d0;
-    --cyan-dim: #2e7a72;
-    --cyan-glow: rgba(95, 224, 208, 0.18);
-    --amber: #f0a63c;
-    --amber-dim: #8a5f22;
-    --danger: #e5674f;
-    --danger-dim: #7a3327;
-    --radius-sm: 5px;
-    --radius-md: 8px;
-    --font-display: 'IBM Plex Sans', -apple-system, sans-serif;
-    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
-  }
-  
-  body {
-    background: radial-gradient(ellipse 900px 500px at 50% -10%, rgba(95, 224, 208, 0.06), transparent 60%), var(--bg);
-    color: var(--text);
-    font-family: var(--font-display);
-    min-height: 100vh;
-    padding: 32px 20px 60px;
-  }
-  
-  .app {
-    max-width: 840px;
-    margin: 0 auto;
-  }
-  
-  .topbar {
-    margin-bottom: 28px;
-  }
-  
-  .eyebrow {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--cyan);
-  }
-  
-  h1 {
-    font-size: 28px;
-    font-weight: 700;
-    margin: 0 0 8px;
-  }
-  
-  .subhead {
-    color: var(--text-muted);
-    font-size: 14.5px;
-    max-width: 560px;
-  }
-  
-  .quality-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 18px;
-  }
-  
-  .quality-select {
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 6px 10px;
-    border-radius: var(--radius-sm);
-  }
+  --bg: #12151b;
+  --surface: #1a1f28;
+  --text: #e7eaf0;
+  --cyan: #5fe0d0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 20px;
+}
+
+.app {
+  max-width: 800px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.topbar {
+  margin-bottom: 20px;
+}
+
+.quality-row {
+  margin-top: 10px;
+}
+
+.console {
+  position: relative;
+}
+
+#webcamVideo {
+  width: 100%;
+  display: block;
+}
+
+#webcamCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}

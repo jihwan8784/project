@@ -4,9 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Pose Vision — 실시간 스켈레톤 인식</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="main.css" />
 </head>
 <body>
@@ -14,7 +11,6 @@
     <div class="topbar">
       <div class="eyebrow">Pose Vision · On-device</div>
       <h1>사람을 인식해서 스켈레톤으로 그려드립니다</h1>
-      <p class="subhead">MediaPipe Pose Landmarker를 브라우저에서 그대로 실행합니다. 웹캠, 이미지, 동영상 세 가지 방식으로 사람의 33개 관절 지점을 감지하고 뼈대(스켈레톤)를 실시간으로 그립니다.</p>
       <div class="quality-row">
         <span class="quality-label">모델 정확도</span>
         <select id="qualitySelect" class="quality-select">
@@ -26,28 +22,8 @@
     </div>
 
     <div class="console">
-      <div class="mode-switch" role="tablist" aria-label="입력 모드 선택">
-        <button class="mode-btn active" data-mode="webcam" role="tab" aria-selected="true">웹캠 (실시간)</button>
-        <button class="mode-btn" data-mode="image" role="tab" aria-selected="false">이미지 업로드</button>
-        <button class="mode-btn" data-mode="video" role="tab" aria-selected="false">동영상 업로드</button>
-      </div>
-
-      <div class="viewport-wrap loading" id="viewportWrap">
-        <div class="bracket tl"></div>
-        <div class="bracket tr"></div>
-        <div class="bracket bl"></div>
-        <div class="bracket br"></div>
-        <div class="scan-line" id="scanLine"></div>
-        <div class="mode-panel active" data-mode="webcam">
-          <div class="media-stack">
-            <video id="webcamVideo" autoplay playsinline muted data-empty="true"></video>
-            <canvas class="overlay" id="webcamCanvas"></canvas>
-            <div class="empty-state" id="webcamEmpty">
-              <span>모델 준비 중입니다…</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <video id="webcamVideo" autoplay muted></video>
+      <canvas id="webcamCanvas"></canvas>
     </div>
   </div>
 

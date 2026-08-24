@@ -1,0 +1,35 @@
+:root {
+  --bg: #12151b;
+  --text: #e7eaf0;
+  --surface: #1a1f28;
+  --cyan: #5fe0d0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 20px;
+}
+
+.avatar-app {
+  max-width: 800px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.avatar-canvas-container {
+  background: var(--surface);
+  border: 2px solid var(--cyan);
+  border-radius: 8px;
+  display: inline-block;
+  margin-bottom: 20px;
+}
+
+.avatar-customization {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+}

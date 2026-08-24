@@ -1,38 +1,32 @@
-import {
-    PoseLandmarker,
-    FilesetResolver,
-    DrawingUtils
-  } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/+esm";
-  
-  const qualitySelect = document.getElementById('qualitySelect');
-  const webcamVideo = document.getElementById('webcamVideo');
-  const webcamCanvas = document.getElementById('webcamCanvas');
-  const webcamEmpty = document.getElementById('webcamEmpty');
-  
-  let poseLandmarker = null;
-  
-  async function initPoseLandmarker(quality) {
-    const MODEL_URLS = {
-      lite: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
-      full: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task",
-      heavy: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task",
-    };
-  
-    const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm");
-    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath: MODEL_URLS[quality],
-        delegate: 'GPU',
-      },
-      runningMode: 'VIDEO',
-      numPoses: 2,
-    });
-  
-    console.log('PoseLandmarker initialized');
-  }
-  
-  qualitySelect.addEventListener('change', async () => {
-    await initPoseLandmarker(qualitySelect.value);
-  });
-  
-  initPoseLandmarker(qualitySelect.value);
+import { initPoseLandmarker, getPoseData } from './poseLandmarker.js';
+import { drawSkeleton } from './ui.js';
+
+const qualitySelect = document.getElementById('qualitySelect');
+const webcamVideo = document.getElementById('webcamVideo');
+const webcamCanvas = document.getElementById('webcamCanvas');
+
+let isWebcamActive = false;
+
+async function startWebcam() {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  webcamVideo.srcObject = stream;
+  isWebcamActive = true;
+
+  webcamVideo.addEventListener('loadeddata', processWebcamFrame);
+}
+
+async function processWebcamFrame() {
+  if (!isWebcamActive) return;
+
+  const poses = getPoseData(webcamVideo);
+  drawSkeleton(webcamCanvas, poses);
+
+  requestAnimationFrame(processWebcamFrame);
+}
+
+qualitySelect.addEventListener('change', async () => {
+  await initPoseLandmarker(qualitySelect.value);
+});
+
+await initPoseLandmarker(qualitySelect.value);
+await startWebcam();

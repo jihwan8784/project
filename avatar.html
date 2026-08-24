@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>아바타 생성 및 꾸미기</title>
+  <link rel="stylesheet" href="avatar.css" />
+</head>
+<body>
+  <div class="avatar-app">
+    <h1>아바타 생성 및 꾸미기</h1>
+    <div class="avatar-canvas-container">
+      <canvas id="avatarCanvas" width="640" height="480"></canvas>
+    </div>
+    <div class="avatar-customization">
+      <label for="avatarColor">아바타 색상:</label>
+      <input type="color" id="avatarColor" value="#ff0000" />
+      <label for="avatarAccessory">악세서리:</label>
+      <select id="avatarAccessory">
+        <option value="none">없음</option>
+        <option value="hat">모자</option>
+        <option value="glasses">안경</option>
+      </select>
+    </div>
+  </div>
+  <script src="avatar.js" type="module"></script>
+</body>
+</html>
