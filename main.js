@@ -4,9 +4,12 @@ import { drawSkeleton } from './ui.js';
 const qualitySelect = document.getElementById('qualitySelect');
 const webcamVideo = document.getElementById('webcamVideo');
 const webcamCanvas = document.getElementById('webcamCanvas');
+const saveAvatarButton = document.getElementById('saveAvatarButton');
+const detectionStatus = document.getElementById('detectionStatus');
 
 let isWebcamActive = false;
 let isProcessingFrame = false;
+let latestPose = null;
 
 function syncCanvasSize() {
   if (webcamVideo.videoWidth === 0 || webcamVideo.videoHeight === 0) return;
@@ -57,6 +60,9 @@ async function processWebcamFrame() {
     const poses = await getPoseData(webcamVideo);
     if (poses) {
       drawSkeleton(webcamCanvas, poses);
+      latestPose = poses.landmarks?.[0] ?? null;
+      detectionStatus.textContent = latestPose ? '사람 인식됨' : '사람을 찾는 중...';
+      saveAvatarButton.disabled = !latestPose;
     }
   } catch (error) {
     console.error('Pose detection error:', error);
@@ -70,6 +76,16 @@ async function processWebcamFrame() {
 // 품질 선택 이벤트 리스너
 qualitySelect.addEventListener('change', async () => {
   await initPoseLandmarker(qualitySelect.value);
+});
+
+saveAvatarButton.addEventListener('click', () => {
+  if (!latestPose) {
+    detectionStatus.textContent = '저장할 사람을 먼저 인식하세요.';
+    return;
+  }
+
+  localStorage.setItem('savedPoseLandmarks', JSON.stringify(latestPose));
+  window.location.href = 'avatar.html';
 });
 
 // 웹캠 시작

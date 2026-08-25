@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>아바타 생성 및 꾸미기</title>
-  <link rel="stylesheet" href="avatar.css" />
+  <link rel="stylesheet" href="avarta.css" />
 </head>
 <body>
   <div class="avatar-app">
@@ -13,16 +13,34 @@
       <canvas id="avatarCanvas" width="640" height="480"></canvas>
     </div>
     <div class="avatar-customization">
-      <label for="avatarColor">아바타 색상:</label>
-      <input type="color" id="avatarColor" value="#ff0000" />
-      <label for="avatarAccessory">악세서리:</label>
+      <label>피부 <input type="color" id="skinColor" value="#f2b28d" /></label>
+      <label>머리 <input type="color" id="hairColor" value="#3b2418" /></label>
+      <label>상의 <input type="color" id="shirtColor" value="#2f80ed" /></label>
+      <label>하의 <input type="color" id="pantsColor" value="#243447" /></label>
+      <label>신발 <input type="color" id="shoeColor" value="#202124" /></label>
+      <label for="hairStyle">헤어스타일</label>
+      <select id="hairStyle">
+        <option value="short">짧은 머리</option>
+        <option value="long">긴 머리</option>
+        <option value="curly">곱슬 머리</option>
+        <option value="none">민머리</option>
+      </select>
+      <label for="eyeStyle">눈</label>
+      <select id="eyeStyle">
+        <option value="open">기본 눈</option>
+        <option value="happy">웃는 눈</option>
+        <option value="cool">선글라스</option>
+      </select>
+      <label for="avatarAccessory">액세서리</label>
       <select id="avatarAccessory">
         <option value="none">없음</option>
         <option value="hat">모자</option>
         <option value="glasses">안경</option>
+        <option value="headphones">헤드폰</option>
+        <option value="necklace">목걸이</option>
       </select>
     </div>
   </div>
-  <script src="avatar.js" type="module"></script>
+  <script src="avarta.js" type="module"></script>
 </body>
 </html>

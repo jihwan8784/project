@@ -8,13 +8,13 @@
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: Arial, sans-serif;
+  font-family: "Trebuchet MS", Arial, sans-serif;
   margin: 0;
   padding: 20px;
 }
 
 .avatar-app {
-  max-width: 800px;
+  max-width: 960px;
   margin: 0 auto;
   text-align: center;
 }
@@ -25,11 +25,34 @@ body {
   border-radius: 8px;
   display: inline-block;
   margin-bottom: 20px;
+  width: min(100%, 760px);
+}
+
+#avatarCanvas {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .avatar-customization {
-  display: flex;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   align-items: center;
-  gap: 20px;
+  gap: 12px;
+  max-width: 760px;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.avatar-customization label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.avatar-customization input[type="color"] {
+  width: 42px;
+  height: 32px;
+  padding: 2px;
 }
