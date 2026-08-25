@@ -6,9 +6,11 @@ const POSE_CONNECTIONS = [
   [28, 30], [28, 32], [5, 11], [6, 12], [5, 6], [5, 7], [6, 8], [7, 9], [8, 10],
 ];
 
-export function drawSkeleton(canvas, poses) {
+export function drawSkeleton(canvas, poses, options = {}) {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (options.showSkeleton === false) return;
 
   const poseLandmarks = poses?.poseLandmarks ?? poses?.landmarks ?? [];
   const detectedLandmarks = Array.isArray(poseLandmarks[0]) ? poseLandmarks : [poseLandmarks];
@@ -22,18 +24,18 @@ export function drawSkeleton(canvas, poses) {
     POSE_CONNECTIONS.forEach(([startIndex, endIndex]) => {
       const start = landmarks[startIndex];
       const end = landmarks[endIndex];
-      if (!start || !end || (start.visibility ?? 1) < 0.35 || (end.visibility ?? 1) < 0.35) return;
+      if (!start || !end || (start.visibility ?? 1) < (options.confidence ?? 0.35) || (end.visibility ?? 1) < (options.confidence ?? 0.35)) return;
 
       ctx.beginPath();
-      ctx.moveTo(start.x * canvas.width, start.y * canvas.height);
-      ctx.lineTo(end.x * canvas.width, end.y * canvas.height);
+      ctx.moveTo((options.mirror ? 1 - start.x : start.x) * canvas.width, start.y * canvas.height);
+      ctx.lineTo((options.mirror ? 1 - end.x : end.x) * canvas.width, end.y * canvas.height);
       ctx.stroke();
     });
 
     landmarks.forEach(keypoint => {
-      if (keypoint && keypoint.x != null && keypoint.y != null && (keypoint.visibility ?? 1) >= 0.35) {
+      if (keypoint && keypoint.x != null && keypoint.y != null && (keypoint.visibility ?? 1) >= (options.confidence ?? 0.35)) {
         ctx.beginPath();
-        ctx.arc(keypoint.x * canvas.width, keypoint.y * canvas.height, Math.max(4, canvas.width / 320), 0, 2 * Math.PI);
+        ctx.arc((options.mirror ? 1 - keypoint.x : keypoint.x) * canvas.width, keypoint.y * canvas.height, Math.max(4, canvas.width / 320), 0, 2 * Math.PI);
         ctx.fillStyle = '#ffffff';
         ctx.fill();
       }

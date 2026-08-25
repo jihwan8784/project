@@ -38,6 +38,66 @@ body {
   margin-top: 10px;
 }
 
+.toolbar,
+.setting-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
+
+button,
+select {
+  border: 1px solid rgba(95, 224, 208, 0.55);
+  border-radius: 6px;
+  background: #202832;
+  color: var(--text);
+  padding: 8px 10px;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.settings-panel {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(95, 224, 208, 0.25);
+  text-align: left;
+}
+
+.setting-row {
+  display: grid;
+  gap: 6px;
+  margin: 9px 0;
+}
+
+.setting-row span,
+.setting-options label {
+  font-size: 0.88rem;
+}
+
+.setting-row output {
+  float: right;
+  color: var(--cyan);
+}
+
+.setting-options {
+  justify-content: flex-start;
+}
+
 .console {
   position: relative;
   width: 100vw;
