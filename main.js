@@ -6,6 +6,7 @@ const webcamVideo = document.getElementById('webcamVideo');
 const webcamCanvas = document.getElementById('webcamCanvas');
 
 let isWebcamActive = false;
+let isProcessingFrame = false;
 
 function syncCanvasSize() {
   if (webcamVideo.videoWidth === 0 || webcamVideo.videoHeight === 0) return;
@@ -16,7 +17,13 @@ function syncCanvasSize() {
 
 async function startWebcam() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        facingMode: 'user',
+      },
+    });
     webcamVideo.srcObject = stream;
     webcamVideo.muted = true;
     await webcamVideo.play();
@@ -41,13 +48,20 @@ async function startWebcam() {
 webcamVideo.addEventListener('loadedmetadata', syncCanvasSize);
 
 async function processWebcamFrame() {
-  if (!isWebcamActive) {
+  if (!isWebcamActive || isProcessingFrame) {
     return;
   }
 
-  const poses = await getPoseData(webcamVideo);
-  if (poses) {
-    drawSkeleton(webcamCanvas, poses);
+  isProcessingFrame = true;
+  try {
+    const poses = await getPoseData(webcamVideo);
+    if (poses) {
+      drawSkeleton(webcamCanvas, poses);
+    }
+  } catch (error) {
+    console.error('Pose detection error:', error);
+  } finally {
+    isProcessingFrame = false;
   }
 
   requestAnimationFrame(processWebcamFrame);
