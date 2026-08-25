@@ -19,6 +19,6 @@ http://127.0.0.1:8000/main.html
 
 ## 인식 기능
 
-MediaPipe Holistic Landmarker를 사용해 포즈 33개, 얼굴 468개, 양손 21개씩을
-실시간으로 추적합니다. 웹캠 아래의 3D 아바타가 포즈 world landmark를 따라 움직입니다.
-모델 선택 메뉴의 Lite, Full, Heavy는 인식 민감도 프로필로 동작합니다.
+ 실시간 화면은 MediaPipe Pose Landmarker로 포즈 33개만 추적해 로딩과 프레임 부담을 줄입니다.
+ 모델 선택 메뉴의 Lite, Full, Heavy로 사용할 포즈 모델을 선택할 수 있습니다.
+ 저장된 포즈는 아바타 화면에서 변환하고 커스텀할 수 있습니다.

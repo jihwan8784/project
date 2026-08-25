@@ -10,17 +10,28 @@ body {
   color: var(--text);
   font-family: Arial, sans-serif;
   margin: 0;
-  padding: 20px;
+  padding: 0;
+  min-height: 100vh;
 }
 
 .app {
-  max-width: 800px;
+  min-height: 100vh;
   margin: 0 auto;
   text-align: center;
 }
 
 .topbar {
-  margin-bottom: 20px;
+  position: absolute;
+  z-index: 2;
+  top: 20px;
+  left: 50%;
+  width: min(92vw, 760px);
+  transform: translateX(-50%);
+  padding: 14px 18px;
+  background: rgba(18, 21, 27, 0.78);
+  border: 1px solid rgba(95, 224, 208, 0.6);
+  border-radius: 8px;
+  box-sizing: border-box;
 }
 
 .quality-row {
@@ -29,50 +40,23 @@ body {
 
 .console {
   position: relative;
-  width: 100%;
-  min-width: 0;
-  margin: 0 auto;
-}
-
-.live-workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
-  gap: 18px;
-  max-width: 1180px;
-  margin: 0 auto;
-  align-items: stretch;
-}
-
-.avatar-live-panel {
-  min-width: 0;
+  width: 100vw;
+  height: 100vh;
   margin: 0;
-}
-
-.avatar-3d {
-  width: 100%;
-  height: 480px;
   overflow: hidden;
-  background: #0b1018;
-  border: 2px solid var(--cyan);
-  border-radius: 8px;
 }
 
-.avatar-3d canvas {
-  display: block;
+#webcamVideo,
+#webcamCanvas {
   width: 100%;
   height: 100%;
-}
-
-@media (max-width: 600px) {
-  .avatar-3d {
-    height: 360px;
-  }
+  display: block;
+  object-fit: cover;
 }
 
 #webcamVideo {
-  width: 100%;
-  height: auto;
-  display: block;
+  position: absolute;
+  inset: 0;
 }
 
 #webcamCanvas {
@@ -84,12 +68,13 @@ body {
   pointer-events: none; /* 캔버스 클릭 방지 */
 }
 
-@media (max-width: 760px) {
-  .live-workspace {
-    grid-template-columns: 1fr;
+@media (max-width: 600px) {
+  .topbar {
+    top: 10px;
+    padding: 10px 12px;
   }
 
-  .avatar-live-panel {
-    order: 2;
+  .topbar h1 {
+    font-size: 1.15rem;
   }
 }

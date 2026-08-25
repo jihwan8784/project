@@ -1,18 +1,21 @@
 import { initPoseLandmarker, getPoseData } from './poseLandmarker.js';
 import { drawSkeleton } from './ui.js';
-import { createAvatar3D } from './avatar3d.js';
 
 const qualitySelect = document.getElementById('qualitySelect');
 const webcamVideo = document.getElementById('webcamVideo');
 const webcamCanvas = document.getElementById('webcamCanvas');
 const saveAvatarButton = document.getElementById('saveAvatarButton');
 const detectionStatus = document.getElementById('detectionStatus');
-const avatar3D = createAvatar3D(document.getElementById('avatar3D'));
 
 let isWebcamActive = false;
 let isProcessingFrame = false;
 let latestPose = null;
 let latestHolisticResult = null;
+
+function getFirstPose(result) {
+  const landmarks = result?.poseLandmarks ?? result?.landmarks ?? [];
+  return Array.isArray(landmarks[0]) ? landmarks[0] : landmarks;
+}
 
 function syncCanvasSize() {
   if (webcamVideo.videoWidth === 0 || webcamVideo.videoHeight === 0) return;
@@ -36,7 +39,10 @@ async function startWebcam() {
     syncCanvasSize();
     isWebcamActive = true;
 
-    await initPoseLandmarker(qualitySelect.value);
+    const modelReady = await initPoseLandmarker(qualitySelect.value);
+    if (!modelReady) {
+      detectionStatus.textContent = '인식 모델을 불러오지 못했습니다.';
+    }
     processWebcamFrame();
   } catch (error) {
     console.error('Webcam access error:', error);
@@ -64,8 +70,8 @@ async function processWebcamFrame() {
     if (poses) {
       latestHolisticResult = poses;
       drawSkeleton(webcamCanvas, poses);
-      latestPose = poses.poseLandmarks?.[0] ?? null;
-      avatar3D.update(poses);
+      latestPose = getFirstPose(poses);
+      if (latestPose.length === 0) latestPose = null;
       detectionStatus.textContent = latestPose ? '사람 인식됨' : '사람을 찾는 중...';
       saveAvatarButton.disabled = !latestPose;
     }
@@ -89,13 +95,13 @@ saveAvatarButton.addEventListener('click', () => {
     return;
   }
 
-  localStorage.setItem('savedHolisticResult', JSON.stringify({
-    poseLandmarks: latestHolisticResult.poseLandmarks?.[0] ?? latestPose,
-    poseWorldLandmarks: latestHolisticResult.poseWorldLandmarks?.[0] ?? [],
-    faceLandmarks: latestHolisticResult.faceLandmarks?.[0] ?? [],
-    leftHandLandmarks: latestHolisticResult.leftHandLandmarks?.[0] ?? [],
-    rightHandLandmarks: latestHolisticResult.rightHandLandmarks?.[0] ?? [],
-  }));
+    localStorage.setItem('savedHolisticResult', JSON.stringify({
+    poseLandmarks: getFirstPose(latestHolisticResult) ?? latestPose,
+      poseWorldLandmarks: latestHolisticResult.worldLandmarks?.[0] ?? [],
+      faceLandmarks: [],
+      leftHandLandmarks: [],
+      rightHandLandmarks: [],
+    }));
   window.location.href = 'avatar.html';
 });
 

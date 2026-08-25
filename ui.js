@@ -10,7 +10,8 @@ export function drawSkeleton(canvas, poses) {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  const detectedLandmarks = poses?.poseLandmarks ?? [];
+  const poseLandmarks = poses?.poseLandmarks ?? poses?.landmarks ?? [];
+  const detectedLandmarks = Array.isArray(poseLandmarks[0]) ? poseLandmarks : [poseLandmarks];
   if (detectedLandmarks.length === 0) return;
 
   detectedLandmarks.forEach(landmarks => {
@@ -39,27 +40,5 @@ export function drawSkeleton(canvas, poses) {
     });
   });
 
-  drawFaceMesh(ctx, poses.faceLandmarks?.[0], canvas);
-  drawHands(ctx, poses.leftHandLandmarks?.[0], canvas, '#ff7a90');
-  drawHands(ctx, poses.rightHandLandmarks?.[0], canvas, '#7ad7ff');
 }
 
-function drawFaceMesh(ctx, landmarks, canvas) {
-  if (!landmarks) return;
-  ctx.fillStyle = 'rgba(255, 220, 120, 0.45)';
-  landmarks.forEach(point => {
-    ctx.beginPath();
-    ctx.arc(point.x * canvas.width, point.y * canvas.height, 1.2, 0, 2 * Math.PI);
-    ctx.fill();
-  });
-}
-
-function drawHands(ctx, landmarks, canvas, color) {
-  if (!landmarks) return;
-  ctx.fillStyle = color;
-  landmarks.forEach(point => {
-    ctx.beginPath();
-    ctx.arc(point.x * canvas.width, point.y * canvas.height, 3, 0, 2 * Math.PI);
-    ctx.fill();
-  });
-}
