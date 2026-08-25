@@ -24,6 +24,11 @@ export function createAvatar3D(container) {
   const bones = [];
   const jointMaterial = new THREE.MeshStandardMaterial({ color: '#f2b28d', roughness: 0.7 });
   const bodyMaterial = new THREE.MeshStandardMaterial({ color: '#2f80ed', roughness: 0.65 });
+  const torso = new THREE.Mesh(new THREE.SphereGeometry(0.5, 24, 16), bodyMaterial);
+  torso.scale.set(1.25, 1.45, 0.55);
+  avatar.add(torso);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.3, 16), jointMaterial);
+  avatar.add(neck);
 
   JOINTS.forEach(index => {
     const radius = index === 0 ? 0.22 : 0.09;
@@ -74,6 +79,18 @@ export function createAvatar3D(container) {
       joint.position.lerp(target, 0.45);
       joint.visible = (landmark.visibility ?? 1) >= 0.35;
     });
+
+    const shoulders = [joints.get(11), joints.get(12)];
+    const hips = [joints.get(23), joints.get(24)];
+    if (shoulders.every(Boolean) && hips.every(Boolean)) {
+      const shoulderCenter = new THREE.Vector3().addVectors(shoulders[0].position, shoulders[1].position).multiplyScalar(0.5);
+      const hipCenter = new THREE.Vector3().addVectors(hips[0].position, hips[1].position).multiplyScalar(0.5);
+      torso.position.lerp(new THREE.Vector3().addVectors(shoulderCenter, hipCenter).multiplyScalar(0.5), 0.45);
+      torso.scale.x = Math.max(0.75, shoulders[0].position.distanceTo(shoulders[1].position) * 1.25);
+      torso.scale.y = Math.max(1, shoulderCenter.distanceTo(hipCenter) * 1.2);
+      neck.position.lerp(shoulderCenter, 0.45);
+      neck.position.y += 0.18;
+    }
 
     bones.forEach(({ mesh, startIndex, endIndex }) => {
       const start = joints.get(startIndex);
