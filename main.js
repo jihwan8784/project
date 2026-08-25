@@ -7,16 +7,23 @@ const webcamCanvas = document.getElementById('webcamCanvas');
 
 let isWebcamActive = false;
 
+// PoseLandmarker 초기화 상태 확인
 async function startWebcam() {
   try {
-    // 카메라 스트림 요청
     const stream = await navigator.mediaDevices.getUserMedia({ video: true });
     webcamVideo.srcObject = stream;
 
-    webcamVideo.addEventListener('loadeddata', () => {
+    webcamVideo.addEventListener('loadeddata', async () => {
       console.log('Webcam video loaded');
-      webcamCanvas.width = webcamVideo.videoWidth;
-      webcamCanvas.height = webcamVideo.videoHeight;
+
+      // PoseLandmarker 초기화
+      await initPoseLandmarker(qualitySelect.value);
+
+      if (!poseLandmarker) {
+        console.error('PoseLandmarker initialization failed.');
+        alert('PoseLandmarker 초기화에 실패했습니다.');
+        return;
+      }
 
       isWebcamActive = true;
       processWebcamFrame();
@@ -24,7 +31,6 @@ async function startWebcam() {
   } catch (error) {
     console.error('Webcam access error:', error);
 
-    // 에러 메시지 추가
     if (error.name === 'NotAllowedError') {
       alert('카메라 권한이 거부되었습니다. 브라우저 설정을 확인하세요.');
     } else if (error.name === 'NotFoundError') {
@@ -51,14 +57,10 @@ async function processWebcamFrame() {
   requestAnimationFrame(processWebcamFrame);
 }
 
+// 품질 선택 이벤트 리스너
 qualitySelect.addEventListener('change', async () => {
-  try {
-    await initPoseLandmarker(qualitySelect.value);
-  } catch (error) {
-    console.error('PoseLandmarker initialization error:', error);
-    alert('PoseLandmarker 초기화에 실패했습니다.');
-  }
+  await initPoseLandmarker(qualitySelect.value);
 });
 
-await initPoseLandmarker(qualitySelect.value);
-await startWebcam();
+// 웹캠 시작
+startWebcam();
