@@ -78,6 +78,10 @@ button:disabled {
   text-align: left;
 }
 
+.settings-panel[hidden] {
+  display: none !important;
+}
+
 .setting-row {
   display: grid;
   gap: 6px;
