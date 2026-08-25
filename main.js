@@ -1,5 +1,5 @@
-import { initPoseLandmarker, getPoseData } from './poseLandmarker.js';
-import { drawSkeleton } from './ui.js';
+import { closeLandmarkers, initPoseLandmarker, getPoseData } from './poseLandmarker.js';
+import { drawSkeleton, resetSkeletonState } from './ui.js';
 
 const qualitySelect = document.getElementById('qualitySelect');
 const webcamVideo = document.getElementById('webcamVideo');
@@ -19,14 +19,22 @@ const mirrorCameraCheckbox = document.getElementById('mirrorCameraCheckbox');
 const debugModeCheckbox = document.getElementById('debugModeCheckbox');
 
 let isWebcamActive = false;
-let isProcessingFrame = false;
+let scheduledFrameId = null;
+let scheduledFrameType = null;
 let latestPose = null;
+let latestPoseSourceIndex = -1;
 let latestHolisticResult = null;
-let previousPose = null;
+let poseTracks = [];
+let nextPoseTrackId = 1;
 let cameraStream = null;
 let lastFrameTime = performance.now();
 let frameCount = 0;
 let displayedFps = 0;
+
+const MAX_PEOPLE = 4;
+const POSE_TRACK_TTL_MS = 500;
+const POSE_MATCH_DISTANCE = 0.32;
+const CORE_LANDMARKS = [11, 12, 23, 24];
 
 let storedSettings = {};
 try {
@@ -59,37 +67,139 @@ function persistSettings() {
   webcamVideo.style.transform = mirrorCameraCheckbox.checked ? 'scaleX(-1)' : 'none';
 }
 
-function getFirstPose(result) {
-  const landmarks = result?.poseLandmarks ?? result?.landmarks ?? [];
-  return Array.isArray(landmarks[0]) ? landmarks[0] : landmarks;
+function getDetectedPoses(result) {
+  const landmarks = result?.landmarks ?? [];
+  if (!Array.isArray(landmarks)) return [];
+  return Array.isArray(landmarks[0]) ? landmarks : landmarks.length ? [landmarks] : [];
+}
+
+function getPoseCenter(pose) {
+  if (!pose?.length) return null;
+  let points = CORE_LANDMARKS
+    .map(index => pose[index])
+    .filter(point =>
+      Number.isFinite(point?.x) &&
+      Number.isFinite(point?.y) &&
+      Math.min(point.visibility ?? 1, point.presence ?? 1) >= 0.15
+    );
+
+  if (points.length === 0) {
+    points = pose.filter(point =>
+      Number.isFinite(point?.x) && Number.isFinite(point?.y)
+    );
+  }
+  if (points.length === 0) return null;
+
+  return {
+    x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+    y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
+  };
 }
 
 function syncCanvasSize() {
   if (webcamVideo.videoWidth === 0 || webcamVideo.videoHeight === 0) return;
+  if (
+    webcamCanvas.width === webcamVideo.videoWidth &&
+    webcamCanvas.height === webcamVideo.videoHeight
+  ) return;
   webcamCanvas.width = webcamVideo.videoWidth;
   webcamCanvas.height = webcamVideo.videoHeight;
+  resetSkeletonState();
 }
 
-function smoothPose(pose) {
+function smoothPose(pose, previousPose) {
   if (!pose?.length) return null;
   const settings = getSettings();
-  const filtered = pose.map((landmark, index) => {
+  return pose.map((landmark, index) => {
     const previous = previousPose?.[index];
-    const confidence = landmark?.visibility ?? landmark?.presence ?? 1;
-    if (!landmark || !previous) return landmark;
-    if (confidence < 0.4) return { ...previous, visibility: confidence };
-    const amount = confidence < settings.confidence ? settings.smoothing * 0.5 : settings.smoothing;
+    if (!landmark) return previous ?? null;
+
+    const confidence = Math.min(
+      landmark.visibility ?? 1,
+      landmark.presence ?? 1,
+    );
+    if (!previous) return landmark;
+
+    if (confidence < settings.confidence * 0.7) {
+      return {
+        ...previous,
+        visibility: landmark.visibility,
+        presence: landmark.presence,
+      };
+    }
+
+    const movement = Math.hypot(
+      landmark.x - previous.x,
+      landmark.y - previous.y,
+    );
+    const baseResponse = 1 - settings.smoothing;
+    const response = Math.min(1, Math.max(0.08, baseResponse + movement * 5));
+
     return {
       ...landmark,
-      x: previous.x + (landmark.x - previous.x) * (1 - amount),
-      y: previous.y + (landmark.y - previous.y) * (1 - amount),
-      z: previous.z == null || landmark.z == null ? landmark.z : previous.z + (landmark.z - previous.z) * (1 - amount),
+      x: previous.x + (landmark.x - previous.x) * response,
+      y: previous.y + (landmark.y - previous.y) * response,
+      z: previous.z == null || landmark.z == null
+        ? landmark.z
+        : previous.z + (landmark.z - previous.z) * response,
     };
   });
-  previousPose = filtered;
-  return filtered;
 }
 
+function hasReliablePose(pose, confidence) {
+  if (!pose?.length) return false;
+  const reliableCorePoints = CORE_LANDMARKS.filter(index => {
+    const point = pose[index];
+    return point &&
+      Math.min(point.visibility ?? 1, point.presence ?? 1) >= confidence;
+  }).length;
+  return reliableCorePoints >= 2;
+}
+
+function updatePoseTracks(rawPoses, now) {
+  const activeTracks = poseTracks.filter(
+    track => now - track.lastSeenAt <= POSE_TRACK_TTL_MS,
+  );
+  const unmatchedTrackIndexes = new Set(activeTracks.map((_, index) => index));
+  const updatedTracks = rawPoses.slice(0, MAX_PEOPLE).map((pose, sourceIndex) => {
+    const center = getPoseCenter(pose);
+    let matchedIndex = -1;
+    let closestDistance = POSE_MATCH_DISTANCE;
+
+    if (center) {
+      unmatchedTrackIndexes.forEach(trackIndex => {
+        const previousCenter = activeTracks[trackIndex].center;
+        if (!previousCenter) return;
+        const distance = Math.hypot(
+          center.x - previousCenter.x,
+          center.y - previousCenter.y,
+        );
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          matchedIndex = trackIndex;
+        }
+      });
+    }
+
+    const previousTrack = matchedIndex >= 0 ? activeTracks[matchedIndex] : null;
+    if (matchedIndex >= 0) unmatchedTrackIndexes.delete(matchedIndex);
+    const landmarks = smoothPose(pose, previousTrack?.landmarks);
+
+    return {
+      id: previousTrack?.id ?? nextPoseTrackId++,
+      landmarks,
+      center: getPoseCenter(landmarks) ?? center,
+      lastSeenAt: now,
+      sourceIndex,
+    };
+  });
+
+  const retainedTracks = [...unmatchedTrackIndexes].map(
+    index => activeTracks[index],
+  );
+  poseTracks = [...updatedTracks, ...retainedTracks];
+  return updatedTracks.sort((a, b) => a.id - b.id);
+}
 async function startWebcam() {
   if (isWebcamActive) return;
   try {
@@ -106,7 +216,7 @@ async function startWebcam() {
 
     const modelReady = await initPoseLandmarker(qualitySelect.value);
     if (!modelReady) detectionStatus.textContent = '인식 모델을 불러오지 못했습니다.';
-    processWebcamFrame();
+    scheduleNextFrame();
   } catch (error) {
     console.error('Webcam access error:', error);
     if (error.name === 'NotAllowedError') alert('카메라 권한이 거부되었습니다. 브라우저 설정을 확인하세요.');
@@ -120,10 +230,13 @@ function stopWebcam() {
   cameraStream = null;
   webcamVideo.srcObject = null;
   isWebcamActive = false;
-  isProcessingFrame = false;
-  previousPose = null;
+  cancelScheduledFrame();
+  poseTracks = [];
+  nextPoseTrackId = 1;
   latestPose = null;
+  latestPoseSourceIndex = -1;
   latestHolisticResult = null;
+  resetSkeletonState();
   webcamCanvas.getContext('2d').clearRect(0, 0, webcamCanvas.width, webcamCanvas.height);
   saveAvatarButton.disabled = true;
   startCameraButton.disabled = false;
@@ -131,41 +244,85 @@ function stopWebcam() {
   detectionStatus.textContent = '카메라가 중지되었습니다.';
 }
 
-async function processWebcamFrame() {
-  if (!isWebcamActive || isProcessingFrame) return;
-  isProcessingFrame = true;
+function scheduleNextFrame() {
+  if (!isWebcamActive) return;
+  if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
+    scheduledFrameType = 'video';
+    scheduledFrameId = webcamVideo.requestVideoFrameCallback(processWebcamFrame);
+  } else {
+    scheduledFrameType = 'animation';
+    scheduledFrameId = requestAnimationFrame(processWebcamFrame);
+  }
+}
+
+function cancelScheduledFrame() {
+  if (scheduledFrameId == null) return;
+  if (scheduledFrameType === 'video') webcamVideo.cancelVideoFrameCallback(scheduledFrameId);
+  else cancelAnimationFrame(scheduledFrameId);
+  scheduledFrameId = null;
+}
+
+function processWebcamFrame(now) {
+  scheduledFrameId = null;
+  if (!isWebcamActive) return;
   try {
-    const poses = await getPoseData(webcamVideo);
-    if (poses) {
-      latestPose = smoothPose(getFirstPose(poses));
-      latestHolisticResult = { ...poses, poseLandmarks: latestPose ? [latestPose] : [] };
+    const frameTimestamp = Number.isFinite(now) ? now : performance.now();
+    const result = getPoseData(webcamVideo, frameTimestamp);
+    if (result) {
+      const measuredAt = performance.now();
+      const trackedPoses = updatePoseTracks(getDetectedPoses(result), measuredAt);
       const settings = getSettings();
+      const reliableTracks = trackedPoses.filter(track =>
+        hasReliablePose(track.landmarks, settings.confidence)
+      );
+      const primaryTrack = reliableTracks[0] ?? null;
+
+      latestPose = primaryTrack?.landmarks ?? null;
+      latestPoseSourceIndex = primaryTrack?.sourceIndex ?? -1;
+      latestHolisticResult = {
+        ...result,
+        poseLandmarks: trackedPoses.map(track => track.landmarks),
+        poseTrackIds: trackedPoses.map(track => track.id),
+      };
       drawSkeleton(webcamCanvas, latestHolisticResult, settings);
-      if (latestPose?.length === 0) latestPose = null;
+
       frameCount += 1;
-      const now = performance.now();
-      if (now - lastFrameTime >= 1000) {
+      const measuredFpsAt = performance.now();
+      if (measuredFpsAt - lastFrameTime >= 1000) {
         displayedFps = frameCount;
         frameCount = 0;
-        lastFrameTime = now;
+        lastFrameTime = measuredFpsAt;
       }
+
+      const personCount = reliableTracks.length;
+      const statusLabel = personCount > 0
+        ? `${personCount}\uBA85 \uC778\uC2DD\uB428`
+        : '\uC0AC\uB78C\uC744 \uCC3E\uB294 \uC911...';
       detectionStatus.textContent = settings.debug
-        ? `${latestPose ? '사람 인식됨' : '사람을 찾는 중...'} · FPS ${displayedFps} · 기준 ${settings.confidence.toFixed(2)}`
-        : latestPose ? '사람 인식됨' : '사람을 찾는 중...';
-      saveAvatarButton.disabled = !latestPose;
+        ? `${statusLabel} · FPS ${displayedFps} · \uAE30\uC900 ${settings.confidence.toFixed(2)}`
+        : statusLabel;
+      saveAvatarButton.disabled = !primaryTrack;
     }
   } catch (error) {
     console.error('Pose detection error:', error);
-  } finally {
-    isProcessingFrame = false;
   }
-  requestAnimationFrame(processWebcamFrame);
+  scheduleNextFrame();
 }
-
 webcamVideo.addEventListener('loadedmetadata', syncCanvasSize);
 qualitySelect.addEventListener('change', async () => {
   persistSettings();
-  await initPoseLandmarker(qualitySelect.value);
+  qualitySelect.disabled = true;
+  try {
+    const initialized = await initPoseLandmarker(qualitySelect.value);
+    if (initialized) {
+      poseTracks = [];
+      nextPoseTrackId = 1;
+      latestPoseSourceIndex = -1;
+      resetSkeletonState();
+    }
+  } finally {
+    qualitySelect.disabled = false;
+  }
 });
 settingsButton.addEventListener('click', () => {
   const shouldOpen = settingsPanel.hasAttribute('hidden');
@@ -185,13 +342,29 @@ saveAvatarButton.addEventListener('click', () => {
   }
   localStorage.setItem('savedHolisticResult', JSON.stringify({
     poseLandmarks: latestPose,
-    poseWorldLandmarks: latestHolisticResult.worldLandmarks?.[0] ?? [],
-    faceLandmarks: [],
-    leftHandLandmarks: [],
-    rightHandLandmarks: [],
+    poseWorldLandmarks: latestPoseSourceIndex >= 0
+      ? latestHolisticResult.worldLandmarks?.[latestPoseSourceIndex] ?? []
+      : [],
+    faceLandmarks: latestHolisticResult.faceLandmarks?.[0] ?? [],
+    leftHandLandmarks: getHandByLabel('Left'),
+    rightHandLandmarks: getHandByLabel('Right'),
   }));
   window.location.href = 'avatar.html';
 });
+
+function getHandByLabel(label) {
+  const index = latestHolisticResult?.handedness?.findIndex(categories =>
+    categories?.some(category =>
+      category.categoryName === label || category.displayName === label,
+    ),
+  );
+  return index >= 0 ? latestHolisticResult.handLandmarks?.[index] ?? [] : [];
+}
+
+window.addEventListener('pagehide', () => {
+  stopWebcam();
+  closeLandmarkers();
+}, { once: true });
 
 persistSettings();
 startWebcam();

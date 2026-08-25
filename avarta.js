@@ -1,202 +1,211 @@
-const canvas = document.getElementById('avatarCanvas');
-const ctx = canvas.getContext('2d');
-const savedResult = JSON.parse(localStorage.getItem('savedHolisticResult') || 'null');
-const savedLandmarks = savedResult?.poseLandmarks ?? JSON.parse(localStorage.getItem('savedPoseLandmarks') || 'null');
+import {
+  createVirtualAvatar,
+  DEFAULT_AVATAR_OPTIONS,
+} from './avatar3d.js';
+
+const viewport = document.getElementById('avatarViewport');
+const poseState = document.getElementById('poseState');
+const poseStateText = document.getElementById('poseStateText');
+const rotateButton = document.getElementById('rotateButton');
+const cameraButton = document.getElementById('cameraButton');
+const captureButton = document.getElementById('captureButton');
+const randomizeButton = document.getElementById('randomizeButton');
+const resetButton = document.getElementById('resetButton');
+const savePresetButton = document.getElementById('savePresetButton');
+const saveMessage = document.getElementById('saveMessage');
 
 const controls = {
-  skin: document.getElementById('skinColor'),
-  hair: document.getElementById('hairColor'),
-  shirt: document.getElementById('shirtColor'),
-  pants: document.getElementById('pantsColor'),
-  shoe: document.getElementById('shoeColor'),
+  skinColor: document.getElementById('skinColor'),
+  eyeColor: document.getElementById('eyeColor'),
+  hairColor: document.getElementById('hairColor'),
+  topColor: document.getElementById('topColor'),
+  bottomColor: document.getElementById('bottomColor'),
+  accentColor: document.getElementById('accentColor'),
+  shoeColor: document.getElementById('shoeColor'),
+  bodyType: document.getElementById('bodyType'),
+  faceShape: document.getElementById('faceShape'),
   hairStyle: document.getElementById('hairStyle'),
-  eyeStyle: document.getElementById('eyeStyle'),
-  accessory: document.getElementById('avatarAccessory'),
+  outfitStyle: document.getElementById('outfitStyle'),
+  accessoryStyle: document.getElementById('accessoryStyle'),
+  heightScale: document.getElementById('heightScale'),
+  shoulderScale: document.getElementById('shoulderScale'),
+  headScale: document.getElementById('headScale'),
 };
 
-const POSE_CONNECTIONS = [
-  [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24],
-  [23, 25], [25, 27], [24, 26], [26, 28], [27, 29], [27, 31], [28, 30], [28, 32],
-];
+const outputs = {
+  heightScale: document.getElementById('heightValue'),
+  shoulderScale: document.getElementById('shoulderValue'),
+  headScale: document.getElementById('headValue'),
+};
 
-function visiblePoint(index) {
-  const point = savedLandmarks?.[index];
-  return point && (point.visibility ?? 1) >= 0.35 ? point : null;
+const STORAGE_KEY = 'poseVisionAvatarStyle';
+let updateFrameId = 0;
+let autoRotate = true;
+let messageTimer = 0;
+
+function readJsonStorage(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    console.warn('Stored avatar data could not be read.', error);
+    return null;
+  }
 }
 
-function getPoseTransform() {
-  const visible = savedLandmarks.filter(point => (point.visibility ?? 1) >= 0.35);
-  const minX = Math.min(...visible.map(point => point.x));
-  const maxX = Math.max(...visible.map(point => point.x));
-  const minY = Math.min(...visible.map(point => point.y));
-  const maxY = Math.max(...visible.map(point => point.y));
-  const scale = Math.min(560 / (maxX - minX || 1), 430 / (maxY - minY || 1));
-  return point => [
-    point.x * scale + 320 - ((minX + maxX) / 2) * scale,
-    point.y * scale + 250 - ((minY + maxY) / 2) * scale,
-  ];
+function hasPoseData(result) {
+  const world = Array.isArray(result?.poseWorldLandmarks?.[0])
+    ? result.poseWorldLandmarks[0]
+    : result?.poseWorldLandmarks;
+  const normalized = Array.isArray(result?.poseLandmarks?.[0])
+    ? result.poseLandmarks[0]
+    : result?.poseLandmarks;
+  return (Array.isArray(world) && world.length >= 29) ||
+    (Array.isArray(normalized) && normalized.length >= 29);
 }
 
-function drawAvatar() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const visible = savedLandmarks?.filter(point => (point.visibility ?? 1) >= 0.35) ?? [];
-  if (!visible.length) return drawFallbackAvatar();
-
-  const toCanvas = getPoseTransform();
-  const point = index => {
-    const landmark = visiblePoint(index);
-    return landmark ? toCanvas(landmark) : null;
+function readOptions() {
+  return {
+    skinColor: controls.skinColor.value,
+    eyeColor: controls.eyeColor.value,
+    hairColor: controls.hairColor.value,
+    topColor: controls.topColor.value,
+    bottomColor: controls.bottomColor.value,
+    accentColor: controls.accentColor.value,
+    shoeColor: controls.shoeColor.value,
+    bodyType: controls.bodyType.value,
+    faceShape: controls.faceShape.value,
+    hairStyle: controls.hairStyle.value,
+    outfitStyle: controls.outfitStyle.value,
+    accessoryStyle: controls.accessoryStyle.value,
+    heightScale: Number(controls.heightScale.value),
+    shoulderScale: Number(controls.shoulderScale.value),
+    headScale: Number(controls.headScale.value),
   };
-  const nose = point(0);
-  const leftShoulder = point(11);
-  const rightShoulder = point(12);
-  const leftHip = point(23);
-  const rightHip = point(24);
-
-  drawTorso(leftShoulder, rightShoulder, leftHip, rightHip);
-  drawLimbs(point);
-  drawHead(nose, point(7), point(8));
-  drawFace(nose, point(7), point(8));
-  drawHair(nose, point(7), point(8));
-  drawShoes(point(29), point(30), point(31), point(32));
-  drawAccessory(nose, point(7), point(8), leftShoulder, rightShoulder);
 }
 
-function drawFallbackAvatar() {
-  ctx.fillStyle = controls.shirt.value;
-  ctx.fillRect(245, 260, 150, 150);
-  ctx.fillStyle = controls.skin.value;
-  ctx.beginPath();
-  ctx.arc(320, 190, 72, 0, Math.PI * 2);
-  ctx.fill();
+function applyOptionsToControls(options) {
+  Object.entries(controls).forEach(([key, control]) => {
+    if (options[key] == null) return;
+    control.value = String(options[key]);
+  });
+  updateOutputs();
 }
 
-function drawTorso(leftShoulder, rightShoulder, leftHip, rightHip) {
-  if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) return;
-  ctx.fillStyle = controls.shirt.value;
-  ctx.beginPath();
-  ctx.moveTo(...leftShoulder);
-  ctx.lineTo(...rightShoulder);
-  ctx.lineTo(...rightHip);
-  ctx.lineTo(...leftHip);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.25)';
-  ctx.lineWidth = 4;
-  ctx.stroke();
-}
-
-function drawLimbs(point) {
-  POSE_CONNECTIONS.forEach(([startIndex, endIndex]) => {
-    const start = point(startIndex);
-    const end = point(endIndex);
-    if (!start || !end) return;
-    const isLeg = startIndex >= 23 || endIndex >= 23;
-    ctx.strokeStyle = isLeg ? controls.pants.value : controls.skin.value;
-    ctx.lineWidth = isLeg ? 26 : 22;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(...start);
-    ctx.lineTo(...end);
-    ctx.stroke();
+function updateOutputs() {
+  Object.entries(outputs).forEach(([key, output]) => {
+    output.value = Math.round(Number(controls[key].value) * 100) + '%';
   });
 }
 
-function drawHead(nose, leftEar, rightEar) {
-  if (!nose) return;
-  const earDistance = leftEar && rightEar ? Math.abs(rightEar[0] - leftEar[0]) : 70;
-  ctx.fillStyle = controls.skin.value;
-  ctx.beginPath();
-  ctx.ellipse(nose[0], nose[1], earDistance * 0.62, earDistance * 0.72, 0, 0, Math.PI * 2);
-  ctx.fill();
+function showMessage(message) {
+  window.clearTimeout(messageTimer);
+  saveMessage.textContent = message;
+  messageTimer = window.setTimeout(() => {
+    saveMessage.textContent = '';
+  }, 2600);
 }
 
-function drawFace(nose, leftEar, rightEar) {
-  if (!nose) return;
-  const width = leftEar && rightEar ? Math.abs(rightEar[0] - leftEar[0]) : 70;
-  const eyeY = nose[1] - width * 0.16;
-  const eyeGap = width * 0.28;
-  ctx.strokeStyle = '#202124';
-  ctx.fillStyle = '#202124';
-  ctx.lineWidth = 4;
-  if (controls.eyeStyle.value === 'happy') {
-    [-1, 1].forEach(side => {
-      ctx.beginPath();
-      ctx.arc(nose[0] + side * eyeGap, eyeY + 4, 8, Math.PI, Math.PI * 2);
-      ctx.stroke();
-    });
-  } else if (controls.eyeStyle.value !== 'cool') {
-    [-1, 1].forEach(side => {
-      ctx.beginPath();
-      ctx.arc(nose[0] + side * eyeGap, eyeY, 5, 0, Math.PI * 2);
-      ctx.fill();
-    });
-  }
-  ctx.beginPath();
-  ctx.arc(nose[0], nose[1] + width * 0.25, width * 0.16, 0, Math.PI);
-  ctx.stroke();
+function randomChoice(items) {
+  return items[Math.floor(Math.random() * items.length)];
 }
 
-function drawHair(nose, leftEar, rightEar) {
-  if (!nose || controls.hairStyle.value === 'none') return;
-  const width = leftEar && rightEar ? Math.abs(rightEar[0] - leftEar[0]) : 70;
-  ctx.fillStyle = controls.hair.value;
-  ctx.beginPath();
-  ctx.ellipse(nose[0], nose[1] - width * 0.42, width * 0.66, width * 0.35, 0, Math.PI, Math.PI * 2);
-  if (controls.hairStyle.value === 'long') {
-    ctx.lineTo(nose[0] + width * 0.62, nose[1] + width * 0.48);
-    ctx.lineTo(nose[0] - width * 0.62, nose[1] + width * 0.48);
-  }
-  ctx.fill();
+function randomColor(palette) {
+  return randomChoice(palette);
 }
 
-function drawShoes(...feet) {
-  feet.forEach(foot => {
-    if (!foot) return;
-    ctx.fillStyle = controls.shoe.value;
-    ctx.beginPath();
-    ctx.ellipse(foot[0], foot[1], 24, 11, 0, 0, Math.PI * 2);
-    ctx.fill();
+const storedPose = readJsonStorage('savedHolisticResult') ?? (
+  readJsonStorage('savedPoseLandmarks')
+    ? { poseLandmarks: readJsonStorage('savedPoseLandmarks') }
+    : null
+);
+const storedStyle = readJsonStorage(STORAGE_KEY);
+const initialOptions = {
+  ...DEFAULT_AVATAR_OPTIONS,
+  ...(storedStyle ?? {}),
+};
+
+applyOptionsToControls(initialOptions);
+const avatar = createVirtualAvatar(viewport, readOptions());
+avatar.applyPose(storedPose);
+
+if (hasPoseData(storedPose)) {
+  poseStateText.textContent = '촬영 포즈 적용됨';
+} else {
+  poseState.classList.add('is-neutral');
+  poseStateText.textContent = '기본 포즈로 생성됨';
+}
+
+function scheduleAppearanceUpdate() {
+  updateOutputs();
+  cancelAnimationFrame(updateFrameId);
+  updateFrameId = requestAnimationFrame(() => {
+    avatar.updateAppearance(readOptions());
   });
-}
-
-function drawAccessory(nose, leftEar, rightEar, leftShoulder, rightShoulder) {
-  if (controls.accessory.value === 'hat' && nose) {
-    const width = leftEar && rightEar ? Math.abs(rightEar[0] - leftEar[0]) : 70;
-    ctx.fillStyle = '#d97706';
-    ctx.fillRect(nose[0] - width * 0.7, nose[1] - width * 0.78, width * 1.4, 12);
-    ctx.beginPath();
-    ctx.arc(nose[0], nose[1] - width * 0.78, width * 0.5, Math.PI, 0);
-    ctx.fill();
-  } else if (controls.accessory.value === 'glasses' || controls.eyeStyle.value === 'cool') {
-    if (!nose) return;
-    ctx.strokeStyle = '#202124';
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.arc(nose[0] - 18, nose[1] - 12, 14, 0, Math.PI * 2);
-    ctx.arc(nose[0] + 18, nose[1] - 12, 14, 0, Math.PI * 2);
-    ctx.moveTo(nose[0] - 4, nose[1] - 12);
-    ctx.lineTo(nose[0] + 4, nose[1] - 12);
-    ctx.stroke();
-  } else if (controls.accessory.value === 'headphones' && nose) {
-    const width = leftEar && rightEar ? Math.abs(rightEar[0] - leftEar[0]) : 70;
-    ctx.strokeStyle = '#7c3aed';
-    ctx.lineWidth = 10;
-    ctx.beginPath();
-    ctx.arc(nose[0], nose[1], width * 0.7, Math.PI, 0);
-    ctx.stroke();
-  } else if (controls.accessory.value === 'necklace' && leftShoulder && rightShoulder) {
-    ctx.strokeStyle = '#f5c542';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc((leftShoulder[0] + rightShoulder[0]) / 2, leftShoulder[1] + 15, 25, 0, Math.PI);
-    ctx.stroke();
-  }
 }
 
 Object.values(controls).forEach(control => {
-  control.addEventListener('input', drawAvatar);
-  control.addEventListener('change', drawAvatar);
+  control.addEventListener('input', scheduleAppearanceUpdate);
+  control.addEventListener('change', scheduleAppearanceUpdate);
 });
 
-drawAvatar();
+rotateButton.addEventListener('click', () => {
+  autoRotate = !autoRotate;
+  avatar.setAutoRotate(autoRotate);
+  rotateButton.classList.toggle('is-active', autoRotate);
+  rotateButton.setAttribute('aria-pressed', String(autoRotate));
+});
+
+cameraButton.addEventListener('click', () => {
+  avatar.resetCamera();
+  showMessage('카메라 위치를 초기화했습니다.');
+});
+
+captureButton.addEventListener('click', () => {
+  avatar.capture();
+  showMessage('아바타 이미지를 저장했습니다.');
+});
+
+randomizeButton.addEventListener('click', () => {
+  const randomized = {
+    bodyType: randomChoice(['slim', 'balanced', 'athletic']),
+    faceShape: randomChoice(['oval', 'round', 'angular']),
+    hairStyle: randomChoice(['crop', 'wave', 'long', 'bun', 'none']),
+    outfitStyle: randomChoice(['casual', 'sport', 'formal']),
+    accessoryStyle: randomChoice(['none', 'glasses', 'headphones', 'earrings']),
+    skinColor: randomColor(['#f3c6a8', '#dfa27d', '#c98462', '#9a5f43', '#70452f']),
+    eyeColor: randomColor(['#3d3029', '#58634c', '#31516c', '#6b4c36']),
+    hairColor: randomColor(['#181313', '#302019', '#4b3428', '#7a543d', '#aa8b6d']),
+    topColor: randomColor(['#354f77', '#4f3b78', '#3b6d5a', '#873f4f', '#d2d8e0']),
+    bottomColor: randomColor(['#202733', '#2f3542', '#3a3348', '#1f3940']),
+    accentColor: randomColor(['#69e6d5', '#ffb45e', '#9e8cff', '#ff7f9c']),
+    shoeColor: randomColor(['#e9edf2', '#22252c', '#b9a58d', '#5f6570']),
+    heightScale: (0.94 + Math.random() * 0.14).toFixed(2),
+    shoulderScale: (0.88 + Math.random() * 0.27).toFixed(2),
+    headScale: (0.92 + Math.random() * 0.17).toFixed(2),
+  };
+  applyOptionsToControls(randomized);
+  scheduleAppearanceUpdate();
+  showMessage('새로운 조합을 생성했습니다.');
+});
+
+resetButton.addEventListener('click', () => {
+  applyOptionsToControls(DEFAULT_AVATAR_OPTIONS);
+  scheduleAppearanceUpdate();
+  showMessage('기본 스타일로 돌아왔습니다.');
+});
+
+savePresetButton.addEventListener('click', () => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(readOptions()));
+    showMessage('이 스타일을 브라우저에 저장했습니다.');
+  } catch (error) {
+    console.error('Avatar preset save failed.', error);
+    showMessage('스타일을 저장하지 못했습니다.');
+  }
+});
+
+window.addEventListener('pagehide', () => {
+  cancelAnimationFrame(updateFrameId);
+  avatar.dispose();
+}, { once: true });
