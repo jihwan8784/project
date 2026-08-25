@@ -65,6 +65,83 @@ function createSphere(material, widthSegments = 28, heightSegments = 20) {
   return mesh;
 }
 
+function createSmoothLimb(material) {
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+function updateSmoothLimb(mesh, controlPoints, radii, tubularSegments = 32, radialSegments = 20) {
+  const curve = new THREE.CatmullRomCurve3(
+    controlPoints.map(point => point.clone()),
+    false,
+    'centripetal',
+  );
+  const positions = [];
+  const indices = [];
+  let previousNormal = null;
+
+  function radiusAt(t) {
+    const scaled = t * (radii.length - 1);
+    const index = Math.min(Math.floor(scaled), radii.length - 2);
+    const alpha = scaled - index;
+    const eased = alpha * alpha * (3 - 2 * alpha);
+    return THREE.MathUtils.lerp(radii[index], radii[index + 1], eased);
+  }
+
+  for (let segment = 0; segment <= tubularSegments; segment += 1) {
+    const t = segment / tubularSegments;
+    const center = curve.getPointAt(t);
+    const tangent = curve.getTangentAt(t).normalize();
+    let normal;
+
+    if (previousNormal) {
+      normal = previousNormal.clone().addScaledVector(
+        tangent,
+        -previousNormal.dot(tangent),
+      );
+      if (normal.lengthSq() < 1e-6) normal = null;
+    }
+    if (!normal) {
+      const reference = Math.abs(tangent.y) < 0.9 ? UP : new THREE.Vector3(1, 0, 0);
+      normal = new THREE.Vector3().crossVectors(tangent, reference);
+    }
+    normal.normalize();
+    const binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize();
+    previousNormal = normal;
+    const radius = radiusAt(t);
+
+    for (let side = 0; side < radialSegments; side += 1) {
+      const angle = side / radialSegments * Math.PI * 2;
+      const offset = normal.clone().multiplyScalar(Math.cos(angle) * radius)
+        .addScaledVector(binormal, Math.sin(angle) * radius);
+      const vertex = center.clone().add(offset);
+      positions.push(vertex.x, vertex.y, vertex.z);
+    }
+  }
+
+  for (let segment = 0; segment < tubularSegments; segment += 1) {
+    for (let side = 0; side < radialSegments; side += 1) {
+      const nextSide = (side + 1) % radialSegments;
+      const current = segment * radialSegments + side;
+      const next = segment * radialSegments + nextSide;
+      const upper = (segment + 1) * radialSegments + side;
+      const upperNext = (segment + 1) * radialSegments + nextSide;
+      indices.push(current, upper, next, next, upper, upperNext);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  mesh.geometry.dispose();
+  mesh.geometry = geometry;
+  mesh.visible = true;
+}
+
 function updateCapsule(mesh, start, end, radius) {
   const direction = new THREE.Vector3().subVectors(end, start);
   const length = Math.max(direction.length(), radius * 2.1);
@@ -433,27 +510,13 @@ export function createVirtualAvatar(container, initialOptions = {}) {
   avatar.add(chest, abdomen, pelvis);
 
   const limbs = {
-    leftUpperArm: createCapsule(materials.skin),
-    leftForearm: createCapsule(materials.skin),
-    rightUpperArm: createCapsule(materials.skin),
-    rightForearm: createCapsule(materials.skin),
-    leftThigh: createCapsule(materials.bottom, 22),
-    leftShin: createCapsule(materials.bottom, 22),
-    rightThigh: createCapsule(materials.bottom, 22),
-    rightShin: createCapsule(materials.bottom, 22),
+    leftArm: createSmoothLimb(materials.skin),
+    rightArm: createSmoothLimb(materials.skin),
+    leftLeg: createSmoothLimb(materials.bottom),
+    rightLeg: createSmoothLimb(materials.bottom),
     neck: createCapsule(materials.skin),
   };
   Object.values(limbs).forEach(mesh => avatar.add(mesh));
-
-  const joints = {
-    leftShoulder: createSphere(materials.top),
-    rightShoulder: createSphere(materials.top),
-    leftElbow: createSphere(materials.skin),
-    rightElbow: createSphere(materials.skin),
-    leftKnee: createSphere(materials.bottom),
-    rightKnee: createSphere(materials.bottom),
-  };
-  Object.values(joints).forEach(mesh => avatar.add(mesh));
 
   const leftHand = createHand(materials.skin);
   const rightHand = createHand(materials.skin);
@@ -589,14 +652,30 @@ export function createVirtualAvatar(container, initialOptions = {}) {
 
     const armRadius = 0.085 * bodyFactor;
     const legRadius = 0.115 * bodyFactor;
-    updateCapsule(limbs.leftUpperArm, points[11], points[13], armRadius);
-    updateCapsule(limbs.leftForearm, points[13], points[15], armRadius * 0.84);
-    updateCapsule(limbs.rightUpperArm, points[12], points[14], armRadius);
-    updateCapsule(limbs.rightForearm, points[14], points[16], armRadius * 0.84);
-    updateCapsule(limbs.leftThigh, points[23], points[25], legRadius);
-    updateCapsule(limbs.leftShin, points[25], points[27], legRadius * 0.86);
-    updateCapsule(limbs.rightThigh, points[24], points[26], legRadius);
-    updateCapsule(limbs.rightShin, points[26], points[28], legRadius * 0.86);
+    updateSmoothLimb(
+      limbs.leftArm,
+      [points[11], points[13], points[15]],
+      [armRadius * 1.16, armRadius * 0.94, armRadius * 0.7],
+    );
+    updateSmoothLimb(
+      limbs.rightArm,
+      [points[12], points[14], points[16]],
+      [armRadius * 1.16, armRadius * 0.94, armRadius * 0.7],
+    );
+    updateSmoothLimb(
+      limbs.leftLeg,
+      [points[23], points[25], points[27]],
+      [legRadius * 1.22, legRadius, legRadius * 0.76],
+      38,
+      22,
+    );
+    updateSmoothLimb(
+      limbs.rightLeg,
+      [points[24], points[26], points[28]],
+      [legRadius * 1.22, legRadius, legRadius * 0.76],
+      38,
+      22,
+    );
 
     const headCenter = points[0].clone().add(new THREE.Vector3(0, 0.08, 0.01));
     const neckTop = headCenter.clone().add(new THREE.Vector3(0, -0.27, -0.01));
@@ -622,25 +701,18 @@ export function createVirtualAvatar(container, initialOptions = {}) {
       );
     }
 
-    const jointSpecs = [
-      ['leftShoulder', 11, armRadius * 1.08],
-      ['rightShoulder', 12, armRadius * 1.08],
-      ['leftElbow', 13, armRadius * 0.9],
-      ['rightElbow', 14, armRadius * 0.9],
-      ['leftKnee', 25, legRadius * 0.94],
-      ['rightKnee', 26, legRadius * 0.94],
-    ];
-    jointSpecs.forEach(([name, index, radius]) => {
-      joints[name].position.copy(points[index]);
-      joints[name].scale.setScalar(radius);
-    });
-
     leftHand.position.copy(points[15]);
     rightHand.position.copy(points[16]);
     leftHand.scale.setScalar(bodyFactor);
     rightHand.scale.setScalar(bodyFactor);
-    leftHand.quaternion.copy(limbs.leftForearm.quaternion);
-    rightHand.quaternion.copy(limbs.rightForearm.quaternion);
+    leftHand.quaternion.setFromUnitVectors(
+      UP,
+      new THREE.Vector3().subVectors(points[15], points[13]).normalize(),
+    );
+    rightHand.quaternion.setFromUnitVectors(
+      UP,
+      new THREE.Vector3().subVectors(points[16], points[14]).normalize(),
+    );
 
     const leftFootDirection = new THREE.Vector3().subVectors(points[31], points[27]);
     const rightFootDirection = new THREE.Vector3().subVectors(points[32], points[28]);
