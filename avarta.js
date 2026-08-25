@@ -1,6 +1,7 @@
 const canvas = document.getElementById('avatarCanvas');
 const ctx = canvas.getContext('2d');
-const savedLandmarks = JSON.parse(localStorage.getItem('savedPoseLandmarks') || 'null');
+const savedResult = JSON.parse(localStorage.getItem('savedHolisticResult') || 'null');
+const savedLandmarks = savedResult?.poseLandmarks ?? JSON.parse(localStorage.getItem('savedPoseLandmarks') || 'null');
 
 const controls = {
   skin: document.getElementById('skinColor'),

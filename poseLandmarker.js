@@ -1,19 +1,16 @@
 import {
-    PoseLandmarker,
+    HolisticLandmarker,
     FilesetResolver,
   } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/+esm";
   
-  let poseLandmarker = null;
+  let holisticLandmarker = null;
   let visionPromise = null;
 
-  const MODEL_URLS = {
-    lite: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
-    full: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task",
-    heavy: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task",
-  };
+  const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/holistic_landmarker/holistic_landmarker/float16/1/holistic_landmarker.task";
+  const QUALITIES = new Set(['lite', 'full', 'heavy']);
   
   export async function initPoseLandmarker(quality) {
-    if (!MODEL_URLS[quality]) {
+    if (!QUALITIES.has(quality)) {
       console.error('Invalid quality value:', quality);
       alert('잘못된 모델 정확도 값입니다. 다시 선택해주세요.');
       return false;
@@ -29,22 +26,24 @@ import {
       const vision = await visionPromise;
       const options = {
         baseOptions: {
-          modelAssetPath: MODEL_URLS[quality],
+          modelAssetPath: MODEL_URL,
           delegate: 'GPU',
         },
         runningMode: 'VIDEO',
-        numPoses: 2,
-        minPoseDetectionConfidence: 0.5,
+        minFaceDetectionConfidence: quality === 'heavy' ? 0.6 : 0.5,
+        minFacePresenceConfidence: 0.5,
+        minPoseDetectionConfidence: quality === 'lite' ? 0.45 : 0.55,
         minPosePresenceConfidence: 0.5,
-        minTrackingConfidence: 0.5,
+        minHandLandmarksConfidence: 0.5,
+        outputFaceBlendshapes: true,
       };
 
       let nextPoseLandmarker;
       try {
-        nextPoseLandmarker = await PoseLandmarker.createFromOptions(vision, options);
+        nextPoseLandmarker = await HolisticLandmarker.createFromOptions(vision, options);
       } catch (gpuError) {
         console.warn('GPU delegate unavailable, falling back to CPU.', gpuError);
-        nextPoseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+        nextPoseLandmarker = await HolisticLandmarker.createFromOptions(vision, {
           ...options,
           baseOptions: {
             ...options.baseOptions,
@@ -53,8 +52,8 @@ import {
         });
       }
 
-      poseLandmarker?.close();
-      poseLandmarker = nextPoseLandmarker;
+      holisticLandmarker?.close();
+      holisticLandmarker = nextPoseLandmarker;
   
       console.log('PoseLandmarker initialized');
       return true;
@@ -66,6 +65,6 @@ import {
   }
   
   export function getPoseData(videoElement) {
-    if (!poseLandmarker) return null;
-    return poseLandmarker.detectForVideo(videoElement, performance.now());
+    if (!holisticLandmarker) return null;
+    return holisticLandmarker.detectForVideo(videoElement, performance.now());
   }

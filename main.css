@@ -34,6 +34,32 @@ body {
   margin: 0 auto;
 }
 
+.avatar-live-panel {
+  max-width: 900px;
+  margin: 24px auto 0;
+}
+
+.avatar-3d {
+  width: 100%;
+  height: 480px;
+  overflow: hidden;
+  background: #0b1018;
+  border: 2px solid var(--cyan);
+  border-radius: 8px;
+}
+
+.avatar-3d canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 600px) {
+  .avatar-3d {
+    height: 360px;
+  }
+}
+
 #webcamVideo {
   width: 100%;
   height: auto;

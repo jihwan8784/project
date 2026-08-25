@@ -1,15 +1,18 @@
 import { initPoseLandmarker, getPoseData } from './poseLandmarker.js';
 import { drawSkeleton } from './ui.js';
+import { createAvatar3D } from './avatar3d.js';
 
 const qualitySelect = document.getElementById('qualitySelect');
 const webcamVideo = document.getElementById('webcamVideo');
 const webcamCanvas = document.getElementById('webcamCanvas');
 const saveAvatarButton = document.getElementById('saveAvatarButton');
 const detectionStatus = document.getElementById('detectionStatus');
+const avatar3D = createAvatar3D(document.getElementById('avatar3D'));
 
 let isWebcamActive = false;
 let isProcessingFrame = false;
 let latestPose = null;
+let latestHolisticResult = null;
 
 function syncCanvasSize() {
   if (webcamVideo.videoWidth === 0 || webcamVideo.videoHeight === 0) return;
@@ -59,8 +62,10 @@ async function processWebcamFrame() {
   try {
     const poses = await getPoseData(webcamVideo);
     if (poses) {
+      latestHolisticResult = poses;
       drawSkeleton(webcamCanvas, poses);
-      latestPose = poses.landmarks?.[0] ?? null;
+      latestPose = poses.poseLandmarks?.[0] ?? null;
+      avatar3D.update(poses);
       detectionStatus.textContent = latestPose ? '사람 인식됨' : '사람을 찾는 중...';
       saveAvatarButton.disabled = !latestPose;
     }
@@ -84,7 +89,13 @@ saveAvatarButton.addEventListener('click', () => {
     return;
   }
 
-  localStorage.setItem('savedPoseLandmarks', JSON.stringify(latestPose));
+  localStorage.setItem('savedHolisticResult', JSON.stringify({
+    poseLandmarks: latestHolisticResult.poseLandmarks?.[0] ?? latestPose,
+    poseWorldLandmarks: latestHolisticResult.poseWorldLandmarks?.[0] ?? [],
+    faceLandmarks: latestHolisticResult.faceLandmarks?.[0] ?? [],
+    leftHandLandmarks: latestHolisticResult.leftHandLandmarks?.[0] ?? [],
+    rightHandLandmarks: latestHolisticResult.rightHandLandmarks?.[0] ?? [],
+  }));
   window.location.href = 'avatar.html';
 });
 
