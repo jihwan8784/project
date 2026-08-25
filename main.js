@@ -17,6 +17,9 @@ const confidenceValue = document.getElementById('confidenceValue');
 const showSkeletonCheckbox = document.getElementById('showSkeletonCheckbox');
 const mirrorCameraCheckbox = document.getElementById('mirrorCameraCheckbox');
 const debugModeCheckbox = document.getElementById('debugModeCheckbox');
+const welcomePanel = document.getElementById('welcomePanel');
+const cameraHud = document.getElementById('cameraHud');
+const closeSettingsButton = document.getElementById('closeSettingsButton');
 
 let isWebcamActive = false;
 let scheduledFrameId = null;
@@ -35,6 +38,18 @@ const MAX_PEOPLE = 4;
 const POSE_TRACK_TTL_MS = 500;
 const POSE_MATCH_DISTANCE = 0.32;
 const CORE_LANDMARKS = [11, 12, 23, 24];
+
+function setCameraUiState(active) {
+  welcomePanel.toggleAttribute('hidden', active);
+  cameraHud.toggleAttribute('hidden', !active);
+  document.body.classList.toggle('camera-active', active);
+  startCameraButton.disabled = active;
+  stopCameraButton.disabled = !active;
+  if (!active) {
+    settingsPanel.hidden = true;
+    settingsButton.setAttribute('aria-expanded', 'false');
+  }
+}
 
 let storedSettings = {};
 try {
@@ -211,8 +226,7 @@ async function startWebcam() {
     await webcamVideo.play();
     syncCanvasSize();
     isWebcamActive = true;
-    startCameraButton.disabled = true;
-    stopCameraButton.disabled = false;
+    setCameraUiState(true);
 
     const modelReady = await initPoseLandmarker(qualitySelect.value);
     if (!modelReady) detectionStatus.textContent = '인식 모델을 불러오지 못했습니다.';
@@ -239,8 +253,7 @@ function stopWebcam() {
   resetSkeletonState();
   webcamCanvas.getContext('2d').clearRect(0, 0, webcamCanvas.width, webcamCanvas.height);
   saveAvatarButton.disabled = true;
-  startCameraButton.disabled = false;
-  stopCameraButton.disabled = true;
+  setCameraUiState(false);
   detectionStatus.textContent = '카메라가 중지되었습니다.';
 }
 
@@ -329,6 +342,10 @@ settingsButton.addEventListener('click', () => {
   settingsPanel.toggleAttribute('hidden', !shouldOpen);
   settingsButton.setAttribute('aria-expanded', String(shouldOpen));
 });
+closeSettingsButton.addEventListener('click', () => {
+  settingsPanel.hidden = true;
+  settingsButton.setAttribute('aria-expanded', 'false');
+});
 [smoothingRange, confidenceRange, showSkeletonCheckbox, mirrorCameraCheckbox, debugModeCheckbox].forEach(control => {
   control.addEventListener('input', persistSettings);
   control.addEventListener('change', persistSettings);
@@ -367,4 +384,4 @@ window.addEventListener('pagehide', () => {
 }, { once: true });
 
 persistSettings();
-startWebcam();
+setCameraUiState(false);
