@@ -7,27 +7,24 @@ const webcamCanvas = document.getElementById('webcamCanvas');
 
 let isWebcamActive = false;
 
-// PoseLandmarker 초기화 상태 확인
+function syncCanvasSize() {
+  if (webcamVideo.videoWidth === 0 || webcamVideo.videoHeight === 0) return;
+
+  webcamCanvas.width = webcamVideo.videoWidth;
+  webcamCanvas.height = webcamVideo.videoHeight;
+}
+
 async function startWebcam() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: true });
     webcamVideo.srcObject = stream;
+    webcamVideo.muted = true;
+    await webcamVideo.play();
+    syncCanvasSize();
+    isWebcamActive = true;
 
-    webcamVideo.addEventListener('loadeddata', async () => {
-      console.log('Webcam video loaded');
-
-      // PoseLandmarker 초기화
-      await initPoseLandmarker(qualitySelect.value);
-
-      if (!poseLandmarker) {
-        console.error('PoseLandmarker initialization failed.');
-        alert('PoseLandmarker 초기화에 실패했습니다.');
-        return;
-      }
-
-      isWebcamActive = true;
-      processWebcamFrame();
-    });
+    await initPoseLandmarker(qualitySelect.value);
+    processWebcamFrame();
   } catch (error) {
     console.error('Webcam access error:', error);
 
@@ -41,19 +38,18 @@ async function startWebcam() {
   }
 }
 
+webcamVideo.addEventListener('loadedmetadata', syncCanvasSize);
+
 async function processWebcamFrame() {
-  if (!isWebcamActive || !poseLandmarker) {
-    console.warn('Webcam is not active or PoseLandmarker is not initialized.');
+  if (!isWebcamActive) {
     return;
   }
 
   const poses = await getPoseData(webcamVideo);
-  if (!poses) {
-    console.warn('No pose data detected.');
-    return;
+  if (poses) {
+    drawSkeleton(webcamCanvas, poses);
   }
 
-  drawSkeleton(webcamCanvas, poses);
   requestAnimationFrame(processWebcamFrame);
 }
 
