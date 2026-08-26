@@ -287,6 +287,86 @@ h1 {
   text-transform: uppercase;
 }
 
+.gemini-section {
+  padding-top: 6px;
+}
+
+.gemini-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 13px;
+}
+
+.gemini-heading h3 {
+  margin-bottom: 7px;
+}
+
+.gemini-heading p,
+.gemini-privacy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
+.api-badge {
+  padding: 5px 8px;
+  border: 1px solid rgba(105, 230, 213, 0.3);
+  border-radius: 999px;
+  background: rgba(105, 230, 213, 0.08);
+  color: var(--accent);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.api-badge[data-state="ready"] {
+  border-color: rgba(105, 230, 213, 0.3);
+  color: var(--accent);
+}
+
+.api-badge[data-state="error"] {
+  border-color: rgba(255, 107, 120, 0.34);
+  background: rgba(255, 107, 120, 0.08);
+  color: var(--danger);
+}
+
+.gemini-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.gemini-actions button {
+  width: 100%;
+}
+
+.gemini-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.gemini-actions button[aria-busy="true"] {
+  cursor: wait;
+}
+
+.gemini-privacy {
+  margin-top: 10px;
+}
+
+.gemini-status {
+  min-height: 18px;
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.gemini-status[data-state="success"] { color: var(--accent); }
+.gemini-status[data-state="error"] { color: var(--danger); }
+
 .field-grid,
 .swatch-grid {
   display: grid;

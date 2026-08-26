@@ -53,6 +53,22 @@
           <button id="randomizeButton" class="text-button" type="button">랜덤 생성</button>
         </div>
 
+        <section id="geminiAvatarPanel" class="control-section gemini-section">
+          <div class="gemini-heading">
+            <div>
+              <h3>Gemini AI 외형 분석</h3>
+              <p>촬영한 사진을 분석해 현재 3D 아바타의 얼굴, 헤어, 체형과 스타일을 맞춥니다.</p>
+            </div>
+            <span id="geminiModelBadge" class="api-badge">API 확인 중</span>
+          </div>
+          <div class="gemini-actions">
+            <button id="geminiAnalyzeButton" class="primary-button" type="button" disabled>Gemini로 아바타 만들기</button>
+            <button id="geminiLearnButton" class="secondary-button" type="button" disabled>수정 결과를 보정 예시로 저장</button>
+          </div>
+          <p class="gemini-privacy">API 키는 서버에만 보관되며 원본 사진은 보정 예시 파일에 저장하지 않습니다.</p>
+          <p id="geminiStatus" class="gemini-status" aria-live="polite">Gemini 연결 상태를 확인하고 있습니다.</p>
+        </section>
+
         <section class="control-section">
           <h3>형태</h3>
           <div class="field-grid">
