@@ -2,6 +2,22 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+function loadDotEnv() {
+  const envPath = path.join(__dirname, '.env');
+  try {
+    const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+    lines.forEach(line => {
+      const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
+      if (!match || match[1].startsWith('#') || process.env[match[1]]) return;
+      process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, '');
+    });
+  } catch (error) {
+    if (error.code !== 'ENOENT') console.warn('환경 설정 파일을 읽지 못했습니다.', error.message);
+  }
+}
+
+loadDotEnv();
+
 const PORT = Number(process.env.PORT || 8000);
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';

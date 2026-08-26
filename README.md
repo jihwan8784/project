@@ -5,8 +5,13 @@
 PowerShell에서 프로젝트 폴더로 이동한 뒤 아래 명령을 실행합니다.
 
 ```powershell
-npx http-server -c-1 -p 8000
+Copy-Item .env.example .env
+notepad .env
+node server.cjs
 ```
+
+`.env` 파일의 `GEMINI_API_KEY`에 Google AI Studio에서 발급한 키를 입력합니다.
+`GEMINI_MODEL`은 기본값인 `gemini-2.5-flash`를 사용하면 됩니다. `.env`는 Git에 저장되지 않습니다.
 
 브라우저에서 다음 주소를 엽니다.
 
@@ -14,7 +19,6 @@ npx http-server -c-1 -p 8000
 http://127.0.0.1:8000/main.html
 ```
 
-처음 실행할 때 `http-server` 설치 확인 메시지가 나오면 `y`를 입력합니다.
 카메라 권한을 허용해야 영상과 포즈 인식이 작동합니다.
 
 ## 인식 기능
