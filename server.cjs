@@ -20,7 +20,7 @@ loadDotEnv();
 
 const PORT = Number(process.env.PORT || 8000);
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
 const LEARNING_FILE = path.join(DATA_DIR, 'avatar-learning.json');
@@ -162,7 +162,9 @@ async function analyzeWithGemini(body) {
         { text: buildPrompt(body, examples) },
       ] }],
       generationConfig: {
-        temperature: 0.2,
+        thinkingConfig: {
+          thinkingLevel: 'low',
+        },
         responseMimeType: 'application/json',
         responseSchema: schema,
       },
