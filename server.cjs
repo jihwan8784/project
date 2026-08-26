@@ -378,7 +378,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`Pose Vision: http://127.0.0.1:${PORT}/main.html`);
+  console.log(`Pose Vision: http://127.0.0.1:${PORT}`);
   console.log(`Gemini model: ${GEMINI_MODEL}`);
   console.log(GEMINI_API_KEY ? 'Gemini API key configured.' : 'GEMINI_API_KEY is not configured.');
   console.log(GOOGLE_CLIENT_ID_VALID ? 'Google Drive OAuth configured.' : 'GOOGLE_CLIENT_ID is not configured or invalid.');
