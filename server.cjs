@@ -21,17 +21,16 @@ loadDotEnv();
 const PORT = Number(process.env.PORT || 8000);
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GEMINI_TIMEOUT_MS = 40_000;
 const ROOT = path.resolve(__dirname);
-const DATA_DIR = path.join(ROOT, 'data');
-const LEARNING_FILE = path.join(DATA_DIR, 'avatar-learning.json');
-const MAX_EXAMPLES = 24;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -44,14 +43,14 @@ const COLOR_KEYS = [
 const ENUM_OPTIONS = {
   bodyType: ['slim', 'balanced', 'athletic'],
   faceShape: ['oval', 'round', 'angular'],
-  hairStyle: ['crop', 'wave', 'long', 'bun', 'none'],
-  outfitStyle: ['casual', 'sport', 'formal'],
-  accessoryStyle: ['none', 'glasses', 'headphones', 'earrings'],
+  hairStyle: ['crop', 'wave', 'long', 'twinTail', 'bun', 'none'],
+  outfitStyle: ['casual', 'sport', 'formal', 'idol'],
+  accessoryStyle: ['none', 'glasses', 'headphones', 'earrings', 'ribbon'],
 };
 const NUMBER_OPTIONS = {
   heightScale: [0.92, 1.10],
   shoulderScale: [0.86, 1.18],
-  headScale: [0.90, 1.12],
+  headScale: [0.90, 1.20],
 };
 
 class HttpError extends Error {
@@ -132,34 +131,6 @@ function normalizeAvatarOptions(value) {
   return result;
 }
 
-function loadExamples() {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(LEARNING_FILE, 'utf8'));
-    if (!Array.isArray(parsed)) return [];
-    return parsed.flatMap(item => {
-      try {
-        return [{
-          createdAt: item.createdAt,
-          analysisSummary: String(item.analysisSummary || '').slice(0, 1200),
-          uncertainFields: Array.isArray(item.uncertainFields)
-            ? item.uncertainFields.map(String).slice(0, 30)
-            : [],
-          acceptedOptions: normalizeAvatarOptions(item.acceptedOptions),
-        }];
-      } catch {
-        return [];
-      }
-    }).slice(-MAX_EXAMPLES);
-  } catch {
-    return [];
-  }
-}
-
-function saveExamples(examples) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(LEARNING_FILE, JSON.stringify(examples.slice(-MAX_EXAMPLES), null, 2));
-}
-
 function parseImageDataUrl(dataUrl) {
   const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=\r\n]+)$/i.exec(dataUrl || '');
   if (!match) throw new HttpError(400, '지원되는 촬영 이미지가 없습니다.');
@@ -176,8 +147,6 @@ function summarizePose(pose) {
     detectedPosePoints: valid,
     hasWorldPose: Array.isArray(world) && world.length > 0,
     hasFace: Array.isArray(pose?.faceLandmarks) && pose.faceLandmarks.length > 0,
-    hasLeftHand: Array.isArray(pose?.leftHandLandmarks) && pose.leftHandLandmarks.length > 0,
-    hasRightHand: Array.isArray(pose?.rightHandLandmarks) && pose.rightHandLandmarks.length > 0,
   };
 }
 
@@ -189,15 +158,10 @@ function getSafeCurrentOptions(value) {
   }
 }
 
-function buildPrompt(body, examples) {
-  const exampleText = examples.length
-    ? examples.map((item, index) => (
-      `예시 ${index + 1}: 관찰 요약=${item.analysisSummary}\n사용자가 최종 확정한 설정=${JSON.stringify(item.acceptedOptions)}`
-    )).join('\n\n')
-    : '아직 사용자 보정 예시가 없습니다.';
-
-  return `너는 Pose Vision 프로젝트의 3D 아바타 외형 분석기다.
+function buildPrompt(body) {
+  return `너는 Pose Vision 프로젝트의 2D 아바타 외형 분석기다.
 촬영 이미지에서 화면에 실제로 보이는 외형만 분석하고, 아래 제한된 옵션으로 아바타 설정을 반환하라.
+출력은 사진을 그대로 복제하는 모델이 아니라 2D VTuber 캐릭터에 적용할 디자인 설정이다.
 나이, 성별, 인종, 민족, 건강 상태, 장애, 종교 등 민감하거나 보이지 않는 속성을 추측하지 마라.
 사진에서 확실하지 않은 값은 중립적인 기본값을 선택하고 uncertainFields에 기록하라.
 색상은 반드시 #RRGGBB 형식으로 반환한다.
@@ -205,20 +169,18 @@ function buildPrompt(body, examples) {
 허용 옵션:
 bodyType: slim | balanced | athletic
 faceShape: oval | round | angular
-hairStyle: crop | wave | long | bun | none
-outfitStyle: casual | sport | formal
-accessoryStyle: none | glasses | headphones | earrings
+hairStyle: crop | wave | long | twinTail | bun | none
+outfitStyle: casual | sport | formal | idol
+accessoryStyle: none | glasses | headphones | earrings | ribbon
 heightScale: 0.92~1.10
 shoulderScale: 0.86~1.18
-headScale: 0.90~1.12
+headScale: 0.90~1.20
+
+twinTail, idol, ribbon은 사진에서 비슷한 특징이 보이거나 현재 아바타 설정의 스타일을 유지할 때만 선택하라.
 
 현재 포즈 인식 요약: ${JSON.stringify(summarizePose(body.pose))}
 현재 아바타 설정(참고만 할 것): ${JSON.stringify(getSafeCurrentOptions(body.currentOptions))}
 
-이 프로젝트에서 사용자가 이전에 수정·확정한 보정 예시:
-${exampleText}
-
-중요: 과거 예시는 사용자의 선호 보정에만 참고하고, 현재 사진의 명백한 특징보다 우선하지 마라.
 analysisSummary에는 민감정보를 제외하고 머리 길이/색, 눈에 보이는 피부색 톤, 얼굴 윤곽, 옷 색·스타일, 체형 실루엣처럼 아바타 생성에 필요한 시각 특징만 짧게 기록하라.`;
 }
 
@@ -290,7 +252,7 @@ async function analyzeWithGemini(body) {
       body: JSON.stringify({
         contents: [{ parts: [
           { inlineData: { mimeType: image.mimeType, data: image.data } },
-          { text: buildPrompt(body, loadExamples()) },
+          { text: buildPrompt(body) },
         ] }],
         generationConfig: {
           thinkingConfig: { thinkingLevel: 'low' },
@@ -346,7 +308,15 @@ async function handleApi(req, res) {
     sendJson(res, 200, {
       configured: Boolean(GEMINI_API_KEY),
       model: GEMINI_MODEL,
-      exampleCount: loadExamples().length,
+    });
+    return;
+  }
+
+  if (pathname === '/api/google/status') {
+    if (req.method !== 'GET') throw new HttpError(405, '허용되지 않은 요청 방식입니다.');
+    sendJson(res, 200, {
+      configured: Boolean(GOOGLE_CLIENT_ID),
+      clientId: GOOGLE_CLIENT_ID,
     });
     return;
   }
@@ -355,26 +325,6 @@ async function handleApi(req, res) {
     if (req.method !== 'POST') throw new HttpError(405, '허용되지 않은 요청 방식입니다.');
     const body = await readBody(req);
     sendJson(res, 200, await analyzeWithGemini(body));
-    return;
-  }
-
-  if (pathname === '/api/gemini/learn') {
-    if (req.method !== 'POST') throw new HttpError(405, '허용되지 않은 요청 방식입니다.');
-    const body = await readBody(req, 512 * 1024);
-    if (!body.analysisSummary || !body.acceptedOptions) {
-      throw new HttpError(400, '보정 예시 데이터가 부족합니다.');
-    }
-    const examples = loadExamples();
-    examples.push({
-      createdAt: new Date().toISOString(),
-      analysisSummary: String(body.analysisSummary).slice(0, 1200),
-      uncertainFields: Array.isArray(body.uncertainFields)
-        ? body.uncertainFields.map(item => String(item).slice(0, 80)).slice(0, 30)
-        : [],
-      acceptedOptions: normalizeAvatarOptions(body.acceptedOptions),
-    });
-    saveExamples(examples);
-    sendJson(res, 200, { ok: true, exampleCount: examples.slice(-MAX_EXAMPLES).length });
     return;
   }
 

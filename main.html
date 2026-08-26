@@ -3,62 +3,82 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pose Vision — 실시간 스켈레톤 인식</title>
+  <meta name="theme-color" content="#090b12" />
+  <title>Pose Vision — Live VTuber</title>
   <link rel="stylesheet" href="main.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-  <div class="app">
-    <div id="welcomePanel" class="topbar welcome-panel">
-      <div class="eyebrow">Pose Vision · On-device</div>
-      <h1>사람을 인식해서 스켈레톤으로 그려드립니다</h1>
-      <p class="welcome-copy">카메라는 버튼을 누르기 전까지 실행되지 않습니다.</p>
-      <button id="startCameraButton" class="start-camera-button" type="button">카메라 켜기</button>
-    </div>
+  <main class="app-shell">
+    <section id="optionSetup" class="option-setup" aria-labelledby="optionTitle">
+      <header class="setup-header">
+        <p class="eyebrow">POSE VISION · LIVE VTUBER</p>
+        <h1 id="optionTitle">아바타 옵션을 선택하세요</h1>
+        <p>옵션을 완료하면 카메라와 실시간 트래킹이 시작됩니다.</p>
+      </header>
 
-    <div class="console">
+      <div class="option-layout">
+        <figure class="option-visual">
+          <div id="optionAvatarPreview" class="option-avatar-preview" aria-label="선택 옵션 아바타 미리보기"></div>
+          <figcaption>선택한 옵션의 대표 이미지</figcaption>
+        </figure>
+
+        <section class="option-panel" aria-label="아바타 옵션">
+          <div>
+            <p class="panel-kicker">AVATAR OPTION</p>
+            <h2>기본 VTuber 스타일</h2>
+            <p class="option-description">세부 옵션은 추후 이 영역에 추가할 수 있습니다.</p>
+          </div>
+          <label class="preset-card">
+            <input type="radio" name="avatarPreset" value="default" checked />
+            <span>
+              <b>기본 프리셋</b>
+              <small>툰 셰이딩 · 리본 · 아이돌 의상</small>
+            </span>
+          </label>
+          <button id="completeOptionsButton" class="primary-action" type="button">옵션 선택 완료</button>
+          <p id="setupStatus" class="setup-status" aria-live="polite"></p>
+        </section>
+      </div>
+    </section>
+
+    <section id="trackingStage" class="tracking-stage" hidden aria-label="실시간 아바타 트래킹">
       <video id="webcamVideo" autoplay muted playsinline></video>
       <canvas id="webcamCanvas"></canvas>
+      <div id="liveAvatarOverlay" class="live-avatar-overlay" hidden aria-hidden="true"></div>
 
-      <div id="cameraHud" class="camera-hud" hidden>
-        <p id="detectionStatus" class="status-pill" aria-live="polite">사람을 찾는 중...</p>
-        <div class="compact-toolbar">
-          <button id="settingsButton" class="compact-button icon-button" type="button" aria-expanded="false" aria-label="인식 설정" title="인식 설정">⚙</button>
-          <button id="saveAvatarButton" class="compact-button avatar-button" type="button" disabled>아바타</button>
-          <button id="stopCameraButton" class="compact-button icon-button stop-button" type="button" disabled aria-label="카메라 종료" title="카메라 종료">■</button>
+      <div class="tracking-hud">
+        <p id="detectionStatus" class="status-pill" aria-live="polite">Pose Lite 준비 중</p>
+        <div class="action-bar">
+          <button id="settingsButton" class="hud-button" type="button" aria-expanded="false">설정</button>
+          <button id="captureButton" class="hud-button primary" type="button" disabled>사진 캡처</button>
+          <button id="driveConnectButton" class="hud-button" type="button" disabled>Google Drive 연결</button>
+          <button id="driveSaveButton" class="hud-button" type="button" disabled>Drive에 저장</button>
+          <button id="stopCameraButton" class="hud-button danger" type="button">종료</button>
         </div>
 
-        <section id="settingsPanel" class="settings-panel floating-settings" hidden>
+        <section id="settingsPanel" class="settings-panel" hidden>
           <div class="settings-heading">
-            <strong>인식 설정</strong>
-            <button id="closeSettingsButton" class="close-settings-button" type="button" aria-label="설정 닫기">×</button>
+            <strong>트래킹 설정</strong>
+            <button id="closeSettingsButton" type="button" aria-label="설정 닫기">×</button>
           </div>
-          <div class="setting-row">
-            <label for="qualitySelect">모델 품질</label>
-            <select id="qualitySelect" class="quality-select">
-              <option value="lite">Lite — 빠름</option>
-              <option value="full" selected>Full — 균형</option>
-              <option value="heavy">Heavy — 정밀</option>
-            </select>
-          </div>
-          <label class="setting-row" for="smoothingRange">
+          <label class="setting-row">
             <span>흔들림 보정 <output id="smoothingValue">0.35</output></span>
             <input id="smoothingRange" type="range" min="0" max="0.8" step="0.05" value="0.35" />
           </label>
-          <label class="setting-row" for="confidenceRange">
-            <span>신뢰도 기준 <output id="confidenceValue">0.40</output></span>
-            <input id="confidenceRange" type="range" min="0.2" max="0.8" step="0.05" value="0.4" />
+          <label class="setting-row">
+            <span>신뢰도 기준 <output id="confidenceValue">0.50</output></span>
+            <input id="confidenceRange" type="range" min="0.2" max="0.8" step="0.05" value="0.5" />
           </label>
-          <div class="setting-options">
-            <label><input id="showSkeletonCheckbox" type="checkbox" checked /> 스켈레톤 표시</label>
-            <label><input id="mirrorCameraCheckbox" type="checkbox" checked /> 좌우 반전</label>
-            <label><input id="debugModeCheckbox" type="checkbox" /> 디버그 정보</label>
-          </div>
+          <label><input id="showSkeletonCheckbox" type="checkbox" /> 스켈레톤 표시</label>
+          <label><input id="mirrorCameraCheckbox" type="checkbox" checked /> 좌우 반전</label>
         </section>
-      </div>
-    </div>
-  </div>
 
-  <script src="captureGemini.js" type="module"></script>
+        <p id="captureStatus" class="capture-status" aria-live="polite"></p>
+      </div>
+    </section>
+  </main>
+
   <script src="main.js" type="module"></script>
 </body>
 </html>

@@ -1,69 +1,58 @@
 import { closeLandmarkers, initPoseLandmarker, getPoseData } from './poseLandmarker.js';
 import { drawSkeleton, resetSkeletonState } from './ui.js';
+import { create2DAvatar, DEFAULT_AVATAR_OPTIONS } from './avatar2d.js';
 
-const qualitySelect = document.getElementById('qualitySelect');
+const optionSetup = document.getElementById('optionSetup');
+const optionPreview = document.getElementById('optionAvatarPreview');
+const completeOptionsButton = document.getElementById('completeOptionsButton');
+const setupStatus = document.getElementById('setupStatus');
+const trackingStage = document.getElementById('trackingStage');
 const webcamVideo = document.getElementById('webcamVideo');
 const webcamCanvas = document.getElementById('webcamCanvas');
-const saveAvatarButton = document.getElementById('saveAvatarButton');
+const liveAvatarOverlay = document.getElementById('liveAvatarOverlay');
 const detectionStatus = document.getElementById('detectionStatus');
+const captureButton = document.getElementById('captureButton');
+const driveConnectButton = document.getElementById('driveConnectButton');
+const driveSaveButton = document.getElementById('driveSaveButton');
+const stopCameraButton = document.getElementById('stopCameraButton');
 const settingsButton = document.getElementById('settingsButton');
 const settingsPanel = document.getElementById('settingsPanel');
-const startCameraButton = document.getElementById('startCameraButton');
-const stopCameraButton = document.getElementById('stopCameraButton');
+const closeSettingsButton = document.getElementById('closeSettingsButton');
 const smoothingRange = document.getElementById('smoothingRange');
 const smoothingValue = document.getElementById('smoothingValue');
 const confidenceRange = document.getElementById('confidenceRange');
 const confidenceValue = document.getElementById('confidenceValue');
 const showSkeletonCheckbox = document.getElementById('showSkeletonCheckbox');
 const mirrorCameraCheckbox = document.getElementById('mirrorCameraCheckbox');
-const debugModeCheckbox = document.getElementById('debugModeCheckbox');
-const welcomePanel = document.getElementById('welcomePanel');
-const cameraHud = document.getElementById('cameraHud');
-const closeSettingsButton = document.getElementById('closeSettingsButton');
+const captureStatus = document.getElementById('captureStatus');
 
-let isWebcamActive = false;
+const CORE_LANDMARKS = [11, 12, 23, 24];
+const LOST_POSE_GRACE_MS = 650;
+let previewAvatar = null;
+let liveAvatar = null;
+let cameraStream = null;
 let scheduledFrameId = null;
 let scheduledFrameType = null;
+let tracking = false;
 let latestPose = null;
-let latestPoseSourceIndex = -1;
-let latestHolisticResult = null;
-let poseTracks = [];
-let nextPoseTrackId = 1;
-let cameraStream = null;
-let lastFrameTime = performance.now();
-let frameCount = 0;
-let displayedFps = 0;
+let lastReliablePoseAt = 0;
+let lastCaptureBlob = null;
+let lastCaptureName = '';
+let googleClientId = '';
+let googleTokenClient = null;
+let googleAccessToken = '';
 
-const MAX_PEOPLE = 4;
-const POSE_TRACK_TTL_MS = 500;
-const POSE_MATCH_DISTANCE = 0.32;
-const CORE_LANDMARKS = [11, 12, 23, 24];
-
-function setCameraUiState(active) {
-  welcomePanel.toggleAttribute('hidden', active);
-  cameraHud.toggleAttribute('hidden', !active);
-  document.body.classList.toggle('camera-active', active);
-  startCameraButton.disabled = active;
-  stopCameraButton.disabled = !active;
-  if (!active) {
-    settingsPanel.hidden = true;
-    settingsButton.setAttribute('aria-expanded', 'false');
+function readStoredAvatarOptions() {
+  try {
+    return { ...DEFAULT_AVATAR_OPTIONS, ...JSON.parse(localStorage.getItem('poseVisionAvatarStyle') || '{}') };
+  } catch {
+    return { ...DEFAULT_AVATAR_OPTIONS };
   }
 }
 
-let storedSettings = {};
-try {
-  storedSettings = JSON.parse(localStorage.getItem('poseVisionSettings') || '{}');
-} catch (error) {
-  console.warn('저장된 설정을 읽지 못해 기본값을 사용합니다.', error);
-  localStorage.removeItem('poseVisionSettings');
+function createPreview() {
+  if (!previewAvatar) previewAvatar = create2DAvatar(optionPreview, readStoredAvatarOptions());
 }
-if (storedSettings.quality && qualitySelect.querySelector(`option[value="${storedSettings.quality}"]`)) qualitySelect.value = storedSettings.quality;
-if (storedSettings.smoothing != null) smoothingRange.value = storedSettings.smoothing;
-if (storedSettings.confidence != null) confidenceRange.value = storedSettings.confidence;
-showSkeletonCheckbox.checked = storedSettings.showSkeleton !== false;
-mirrorCameraCheckbox.checked = storedSettings.mirror !== false;
-debugModeCheckbox.checked = storedSettings.debug === true;
 
 function getSettings() {
   return {
@@ -71,52 +60,29 @@ function getSettings() {
     confidence: Number(confidenceRange.value),
     showSkeleton: showSkeletonCheckbox.checked,
     mirror: mirrorCameraCheckbox.checked,
-    debug: debugModeCheckbox.checked,
   };
+}
+
+function loadSettings() {
+  let stored = {};
+  try { stored = JSON.parse(localStorage.getItem('poseVisionSettings') || '{}'); } catch {}
+  if (stored.smoothing != null) smoothingRange.value = stored.smoothing;
+  if (stored.confidence != null) confidenceRange.value = stored.confidence;
+  showSkeletonCheckbox.checked = stored.showSkeleton === true;
+  mirrorCameraCheckbox.checked = stored.mirror !== false;
+  persistSettings();
 }
 
 function persistSettings() {
-  localStorage.setItem('poseVisionSettings', JSON.stringify({ quality: qualitySelect.value, ...getSettings() }));
-  smoothingValue.value = Number(smoothingRange.value).toFixed(2);
-  confidenceValue.value = Number(confidenceRange.value).toFixed(2);
-  webcamVideo.style.transform = mirrorCameraCheckbox.checked ? 'scaleX(-1)' : 'none';
-}
-
-function getDetectedPoses(result) {
-  const landmarks = result?.landmarks ?? [];
-  if (!Array.isArray(landmarks)) return [];
-  return Array.isArray(landmarks[0]) ? landmarks : landmarks.length ? [landmarks] : [];
-}
-
-function getPoseCenter(pose) {
-  if (!pose?.length) return null;
-  let points = CORE_LANDMARKS
-    .map(index => pose[index])
-    .filter(point =>
-      Number.isFinite(point?.x) &&
-      Number.isFinite(point?.y) &&
-      Math.min(point.visibility ?? 1, point.presence ?? 1) >= 0.15
-    );
-
-  if (points.length === 0) {
-    points = pose.filter(point =>
-      Number.isFinite(point?.x) && Number.isFinite(point?.y)
-    );
-  }
-  if (points.length === 0) return null;
-
-  return {
-    x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
-    y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
-  };
+  const settings = getSettings();
+  localStorage.setItem('poseVisionSettings', JSON.stringify(settings));
+  smoothingValue.value = settings.smoothing.toFixed(2);
+  confidenceValue.value = settings.confidence.toFixed(2);
+  webcamVideo.style.transform = settings.mirror ? 'scaleX(-1)' : 'none';
 }
 
 function syncCanvasSize() {
-  if (webcamVideo.videoWidth === 0 || webcamVideo.videoHeight === 0) return;
-  if (
-    webcamCanvas.width === webcamVideo.videoWidth &&
-    webcamCanvas.height === webcamVideo.videoHeight
-  ) return;
+  if (!webcamVideo.videoWidth || !webcamVideo.videoHeight) return;
   webcamCanvas.width = webcamVideo.videoWidth;
   webcamCanvas.height = webcamVideo.videoHeight;
   resetSkeletonState();
@@ -124,147 +90,70 @@ function syncCanvasSize() {
 
 function smoothPose(pose, previousPose) {
   if (!pose?.length) return null;
-  const settings = getSettings();
-  return pose.map((landmark, index) => {
+  const smoothing = getSettings().smoothing;
+  return pose.map((point, index) => {
     const previous = previousPose?.[index];
-    if (!landmark) return previous ?? null;
-
-    const confidence = Math.min(
-      landmark.visibility ?? 1,
-      landmark.presence ?? 1,
-    );
-    if (!previous) return landmark;
-
-    if (confidence < settings.confidence * 0.7) {
-      return {
-        ...previous,
-        visibility: landmark.visibility,
-        presence: landmark.presence,
-      };
-    }
-
-    const movement = Math.hypot(
-      landmark.x - previous.x,
-      landmark.y - previous.y,
-    );
-    const baseResponse = 1 - settings.smoothing;
-    const response = Math.min(1, Math.max(0.08, baseResponse + movement * 5));
-
+    if (!point || !previous) return point;
+    const movement = Math.hypot(point.x - previous.x, point.y - previous.y);
+    const response = Math.min(0.72, Math.max(0.12, 0.12 + (1 - smoothing) * 0.28 + movement * 2.2));
     return {
-      ...landmark,
-      x: previous.x + (landmark.x - previous.x) * response,
-      y: previous.y + (landmark.y - previous.y) * response,
-      z: previous.z == null || landmark.z == null
-        ? landmark.z
-        : previous.z + (landmark.z - previous.z) * response,
+      ...point,
+      x: previous.x + (point.x - previous.x) * response,
+      y: previous.y + (point.y - previous.y) * response,
+      z: previous.z == null || point.z == null
+        ? point.z
+        : previous.z + (point.z - previous.z) * response,
     };
   });
 }
 
-function hasReliablePose(pose, confidence) {
-  if (!pose?.length) return false;
-  const reliableCorePoints = CORE_LANDMARKS.filter(index => {
-    const point = pose[index];
-    return point &&
-      Math.min(point.visibility ?? 1, point.presence ?? 1) >= confidence;
-  }).length;
-  return reliableCorePoints >= 2;
+function hasReliablePose(pose) {
+  const confidence = getSettings().confidence;
+  const reliable = index => {
+    const point = pose?.[index];
+    return point && Math.min(point.visibility ?? 1, point.presence ?? 1) >= confidence;
+  };
+  const reliableCount = CORE_LANDMARKS.filter(reliable).length;
+  return reliableCount >= 3 && [11, 12].some(reliable) && [23, 24].some(reliable);
 }
 
-function updatePoseTracks(rawPoses, now) {
-  const activeTracks = poseTracks.filter(
-    track => now - track.lastSeenAt <= POSE_TRACK_TTL_MS,
-  );
-  const unmatchedTrackIndexes = new Set(activeTracks.map((_, index) => index));
-  const updatedTracks = rawPoses.slice(0, MAX_PEOPLE).map((pose, sourceIndex) => {
-    const center = getPoseCenter(pose);
-    let matchedIndex = -1;
-    let closestDistance = POSE_MATCH_DISTANCE;
+function getCoverMetrics(width, height) {
+  const videoWidth = webcamVideo.videoWidth || width;
+  const videoHeight = webcamVideo.videoHeight || height;
+  const scale = Math.max(width / videoWidth, height / videoHeight);
+  const displayWidth = videoWidth * scale;
+  const displayHeight = videoHeight * scale;
+  return {
+    x: (width - displayWidth) / 2,
+    y: (height - displayHeight) / 2,
+    width: displayWidth,
+    height: displayHeight,
+  };
+}
 
-    if (center) {
-      unmatchedTrackIndexes.forEach(trackIndex => {
-        const previousCenter = activeTracks[trackIndex].center;
-        if (!previousCenter) return;
-        const distance = Math.hypot(
-          center.x - previousCenter.x,
-          center.y - previousCenter.y,
-        );
-        if (distance < closestDistance) {
-          closestDistance = distance;
-          matchedIndex = trackIndex;
-        }
-      });
-    }
+function getFaceBlendshapes(result) {
+  return result?.faceBlendshapes?.[0]?.categories ?? [];
+}
 
-    const previousTrack = matchedIndex >= 0 ? activeTracks[matchedIndex] : null;
-    if (matchedIndex >= 0) unmatchedTrackIndexes.delete(matchedIndex);
-    const landmarks = smoothPose(pose, previousTrack?.landmarks);
-
-    return {
-      id: previousTrack?.id ?? nextPoseTrackId++,
-      landmarks,
-      center: getPoseCenter(landmarks) ?? center,
-      lastSeenAt: now,
-      sourceIndex,
-    };
+function updateLiveAvatar(result, pose) {
+  if (!liveAvatar) return;
+  const cover = getCoverMetrics(trackingStage.clientWidth, trackingStage.clientHeight);
+  liveAvatar.applyPose({
+    poseLandmarks: pose,
+    faceBlendshapes: getFaceBlendshapes(result),
+    mapping: { ...cover, mirror: getSettings().mirror },
   });
-
-  const retainedTracks = [...unmatchedTrackIndexes].map(
-    index => activeTracks[index],
-  );
-  poseTracks = [...updatedTracks, ...retainedTracks];
-  return updatedTracks.sort((a, b) => a.id - b.id);
-}
-async function startWebcam() {
-  if (isWebcamActive) return;
-  try {
-    cameraStream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-    });
-    webcamVideo.srcObject = cameraStream;
-    webcamVideo.muted = true;
-    await webcamVideo.play();
-    syncCanvasSize();
-    isWebcamActive = true;
-    setCameraUiState(true);
-
-    const modelReady = await initPoseLandmarker(qualitySelect.value);
-    if (!modelReady) detectionStatus.textContent = '인식 모델을 불러오지 못했습니다.';
-    scheduleNextFrame();
-  } catch (error) {
-    console.error('Webcam access error:', error);
-    if (error.name === 'NotAllowedError') alert('카메라 권한이 거부되었습니다. 브라우저 설정을 확인하세요.');
-    else if (error.name === 'NotFoundError') alert('카메라를 찾을 수 없습니다. 카메라가 연결되어 있는지 확인하세요.');
-    else alert('카메라에 접근할 수 없습니다. 오류: ' + error.message);
-  }
-}
-
-function stopWebcam() {
-  cameraStream?.getTracks().forEach(track => track.stop());
-  cameraStream = null;
-  webcamVideo.srcObject = null;
-  isWebcamActive = false;
-  cancelScheduledFrame();
-  poseTracks = [];
-  nextPoseTrackId = 1;
-  latestPose = null;
-  latestPoseSourceIndex = -1;
-  latestHolisticResult = null;
-  resetSkeletonState();
-  webcamCanvas.getContext('2d').clearRect(0, 0, webcamCanvas.width, webcamCanvas.height);
-  saveAvatarButton.disabled = true;
-  setCameraUiState(false);
-  detectionStatus.textContent = '카메라가 중지되었습니다.';
+  liveAvatarOverlay.classList.add('is-visible');
 }
 
 function scheduleNextFrame() {
-  if (!isWebcamActive) return;
+  if (!tracking) return;
   if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
     scheduledFrameType = 'video';
-    scheduledFrameId = webcamVideo.requestVideoFrameCallback(processWebcamFrame);
+    scheduledFrameId = webcamVideo.requestVideoFrameCallback(processFrame);
   } else {
     scheduledFrameType = 'animation';
-    scheduledFrameId = requestAnimationFrame(processWebcamFrame);
+    scheduledFrameId = requestAnimationFrame(processFrame);
   }
 }
 
@@ -275,113 +164,257 @@ function cancelScheduledFrame() {
   scheduledFrameId = null;
 }
 
-function processWebcamFrame(now) {
+function processFrame(now) {
   scheduledFrameId = null;
-  if (!isWebcamActive) return;
+  if (!tracking) return;
   try {
-    const frameTimestamp = Number.isFinite(now) ? now : performance.now();
-    const result = getPoseData(webcamVideo, frameTimestamp);
-    if (result) {
-      const measuredAt = performance.now();
-      const trackedPoses = updatePoseTracks(getDetectedPoses(result), measuredAt);
-      const settings = getSettings();
-      const reliableTracks = trackedPoses.filter(track =>
-        hasReliablePose(track.landmarks, settings.confidence)
-      );
-      const primaryTrack = reliableTracks[0] ?? null;
-
-      latestPose = primaryTrack?.landmarks ?? null;
-      latestPoseSourceIndex = primaryTrack?.sourceIndex ?? -1;
-      latestHolisticResult = {
-        ...result,
-        poseLandmarks: trackedPoses.map(track => track.landmarks),
-        poseTrackIds: trackedPoses.map(track => track.id),
-      };
-      drawSkeleton(webcamCanvas, latestHolisticResult, settings);
-
-      frameCount += 1;
-      const measuredFpsAt = performance.now();
-      if (measuredFpsAt - lastFrameTime >= 1000) {
-        displayedFps = frameCount;
-        frameCount = 0;
-        lastFrameTime = measuredFpsAt;
-      }
-
-      const personCount = reliableTracks.length;
-      const statusLabel = personCount > 0
-        ? `${personCount}\uBA85 \uC778\uC2DD\uB428`
-        : '\uC0AC\uB78C\uC744 \uCC3E\uB294 \uC911...';
-      detectionStatus.textContent = settings.debug
-        ? `${statusLabel} · FPS ${displayedFps} · \uAE30\uC900 ${settings.confidence.toFixed(2)}`
-        : statusLabel;
-      saveAvatarButton.disabled = !primaryTrack;
+    const result = getPoseData(webcamVideo, Number.isFinite(now) ? now : performance.now());
+    const frameNow = performance.now();
+    const rawPose = result?.landmarks?.[0] ?? null;
+    const pose = smoothPose(rawPose, latestPose);
+    const reliable = hasReliablePose(pose);
+    if (reliable) {
+      latestPose = pose;
+      lastReliablePoseAt = frameNow;
+      updateLiveAvatar(result, pose);
     }
+    const holdingPose = Boolean(latestPose && frameNow - lastReliablePoseAt <= LOST_POSE_GRACE_MS);
+
+    drawSkeleton(webcamCanvas, {
+      ...result,
+      poseLandmarks: holdingPose ? [latestPose] : [],
+      poseTrackIds: [1],
+    }, getSettings());
+
+    if (reliable) {
+      detectionStatus.textContent = 'Pose Lite · 실시간 아바타 추적 중';
+    } else if (holdingPose) {
+      detectionStatus.textContent = 'Pose Lite · 위치 유지 중';
+    } else {
+      latestPose = null;
+      liveAvatarOverlay.classList.remove('is-visible');
+      detectionStatus.textContent = 'Pose Lite · 사람을 찾는 중';
+    }
+    captureButton.disabled = !holdingPose;
   } catch (error) {
-    console.error('Pose detection error:', error);
+    console.error('Tracking failed.', error);
   }
   scheduleNextFrame();
 }
-webcamVideo.addEventListener('loadedmetadata', syncCanvasSize);
-qualitySelect.addEventListener('change', async () => {
-  persistSettings();
-  qualitySelect.disabled = true;
+
+async function startTracking() {
+  completeOptionsButton.disabled = true;
+  setupStatus.textContent = '카메라와 Pose Lite를 준비하고 있습니다.';
   try {
-    const initialized = await initPoseLandmarker(qualitySelect.value);
-    if (initialized) {
-      poseTracks = [];
-      nextPoseTrackId = 1;
-      latestPoseSourceIndex = -1;
-      resetSkeletonState();
-    }
-  } finally {
-    qualitySelect.disabled = false;
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+    });
+    webcamVideo.srcObject = cameraStream;
+    await webcamVideo.play();
+    syncCanvasSize();
+    if (!await initPoseLandmarker()) throw new Error('Pose Lite 모델을 불러오지 못했습니다.');
+
+    previewAvatar?.dispose();
+    previewAvatar = null;
+    optionSetup.hidden = true;
+    trackingStage.hidden = false;
+    liveAvatarOverlay.hidden = false;
+    liveAvatarOverlay.classList.remove('is-visible');
+    liveAvatar = create2DAvatar(liveAvatarOverlay, readStoredAvatarOptions(), {
+      overlay: true,
+    });
+    tracking = true;
+    scheduleNextFrame();
+  } catch (error) {
+    console.error('Camera start failed.', error);
+    cameraStream?.getTracks().forEach(track => track.stop());
+    cameraStream = null;
+    setupStatus.textContent = `시작 실패: ${error.message}`;
+    completeOptionsButton.disabled = false;
   }
-});
+}
+
+function stopTracking() {
+  tracking = false;
+  cancelScheduledFrame();
+  cameraStream?.getTracks().forEach(track => track.stop());
+  cameraStream = null;
+  webcamVideo.srcObject = null;
+  closeLandmarkers();
+  liveAvatar?.dispose();
+  liveAvatar = null;
+  liveAvatarOverlay.classList.remove('is-visible');
+  liveAvatarOverlay.hidden = true;
+  latestPose = null;
+  lastReliablePoseAt = 0;
+  trackingStage.hidden = true;
+  optionSetup.hidden = false;
+  completeOptionsButton.disabled = false;
+  setupStatus.textContent = '';
+  createPreview();
+}
+
+function drawVideoCover(context, width, height, mirror) {
+  const cover = getCoverMetrics(width, height);
+  context.save();
+  if (mirror) {
+    context.translate(width, 0);
+    context.scale(-1, 1);
+  }
+  context.drawImage(webcamVideo, cover.x, cover.y, cover.width, cover.height);
+  context.restore();
+  return cover;
+}
+
+function canvasToBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('이미지 생성에 실패했습니다.')), 'image/png');
+  });
+}
+
+function timestampName() {
+  return `pose-vision-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+}
+
+async function captureComposite() {
+  if (!latestPose || !liveAvatar) return;
+  captureButton.disabled = true;
+  captureStatus.textContent = '현재 화면을 저장하고 있습니다.';
+  try {
+    const width = trackingStage.clientWidth;
+    const height = trackingStage.clientHeight;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    drawVideoCover(context, width, height, getSettings().mirror);
+
+    if (getSettings().showSkeleton) {
+      const cover = getCoverMetrics(width, height);
+      context.drawImage(webcamCanvas, cover.x, cover.y, cover.width, cover.height);
+    }
+
+    context.drawImage(liveAvatar.domElement, 0, 0, width, height);
+
+    lastCaptureBlob = await canvasToBlob(canvas);
+    lastCaptureName = timestampName();
+    const link = document.createElement('a');
+    link.download = lastCaptureName;
+    link.href = URL.createObjectURL(lastCaptureBlob);
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    driveSaveButton.disabled = !googleAccessToken;
+    captureStatus.textContent = '사진 저장 완료. Drive 연결 후 업로드할 수 있습니다.';
+  } catch (error) {
+    captureStatus.textContent = `캡처 실패: ${error.message}`;
+  } finally {
+    captureButton.disabled = !latestPose;
+  }
+}
+
+async function loadDriveConfig() {
+  try {
+    const response = await fetch('/api/google/status');
+    const config = await response.json();
+    googleClientId = config.clientId || '';
+    driveConnectButton.disabled = !config.configured;
+    if (!config.configured) driveConnectButton.title = '.env에 GOOGLE_CLIENT_ID를 설정하세요.';
+  } catch {
+    driveConnectButton.disabled = true;
+  }
+}
+
+function connectGoogleDrive() {
+  if (!googleClientId) return;
+  if (!window.google?.accounts?.oauth2) {
+    captureStatus.textContent = 'Google 로그인 모듈을 불러오는 중입니다. 잠시 후 다시 시도하세요.';
+    return;
+  }
+  if (!googleTokenClient) {
+    googleTokenClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: googleClientId,
+      scope: 'https://www.googleapis.com/auth/drive.file',
+      callback: response => {
+        if (response.error) {
+          captureStatus.textContent = `Drive 연결 실패: ${response.error}`;
+          return;
+        }
+        googleAccessToken = response.access_token;
+        driveConnectButton.textContent = 'Drive 연결됨';
+        driveSaveButton.disabled = !lastCaptureBlob;
+        captureStatus.textContent = 'Google Drive 연결 완료.';
+      },
+    });
+  }
+  googleTokenClient.requestAccessToken({ prompt: googleAccessToken ? '' : 'consent' });
+}
+
+async function uploadCaptureToDrive() {
+  if (!lastCaptureBlob || !googleAccessToken) return;
+  driveSaveButton.disabled = true;
+  captureStatus.textContent = 'Google Drive에 업로드하고 있습니다.';
+  const boundary = `pose_vision_${Date.now()}`;
+  const metadata = { name: lastCaptureName || timestampName(), mimeType: 'image/png' };
+  const body = new Blob([
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,
+    JSON.stringify(metadata),
+    `\r\n--${boundary}\r\nContent-Type: image/png\r\n\r\n`,
+    lastCaptureBlob,
+    `\r\n--${boundary}--`,
+  ]);
+
+  try {
+    const response = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${googleAccessToken}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+        },
+        body,
+      },
+    );
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error?.message || `HTTP ${response.status}`);
+    captureStatus.textContent = `Drive 저장 완료: ${result.name}`;
+  } catch (error) {
+    if (/401|invalid.*credential/i.test(error.message)) googleAccessToken = '';
+    captureStatus.textContent = `Drive 저장 실패: ${error.message}`;
+  } finally {
+    driveSaveButton.disabled = !lastCaptureBlob || !googleAccessToken;
+  }
+}
+
+completeOptionsButton.addEventListener('click', startTracking);
+captureButton.addEventListener('click', captureComposite);
+driveConnectButton.addEventListener('click', connectGoogleDrive);
+driveSaveButton.addEventListener('click', uploadCaptureToDrive);
+stopCameraButton.addEventListener('click', stopTracking);
+webcamVideo.addEventListener('loadedmetadata', syncCanvasSize);
 settingsButton.addEventListener('click', () => {
-  const shouldOpen = settingsPanel.hasAttribute('hidden');
-  settingsPanel.toggleAttribute('hidden', !shouldOpen);
-  settingsButton.setAttribute('aria-expanded', String(shouldOpen));
+  settingsPanel.hidden = !settingsPanel.hidden;
+  settingsButton.setAttribute('aria-expanded', String(!settingsPanel.hidden));
 });
 closeSettingsButton.addEventListener('click', () => {
   settingsPanel.hidden = true;
   settingsButton.setAttribute('aria-expanded', 'false');
 });
-[smoothingRange, confidenceRange, showSkeletonCheckbox, mirrorCameraCheckbox, debugModeCheckbox].forEach(control => {
-  control.addEventListener('input', persistSettings);
-  control.addEventListener('change', persistSettings);
-});
-startCameraButton.addEventListener('click', startWebcam);
-stopCameraButton.addEventListener('click', stopWebcam);
-saveAvatarButton.addEventListener('click', () => {
-  if (!latestPose) {
-    detectionStatus.textContent = '저장할 사람을 먼저 인식하세요.';
-    return;
-  }
-  localStorage.setItem('savedHolisticResult', JSON.stringify({
-    poseLandmarks: latestPose,
-    poseWorldLandmarks: latestPoseSourceIndex >= 0
-      ? latestHolisticResult.worldLandmarks?.[latestPoseSourceIndex] ?? []
-      : [],
-    faceLandmarks: latestHolisticResult.faceLandmarks?.[0] ?? [],
-    leftHandLandmarks: getHandByLabel('Left'),
-    rightHandLandmarks: getHandByLabel('Right'),
-  }));
-  window.location.href = 'avatar.html';
-});
-
-function getHandByLabel(label) {
-  const index = latestHolisticResult?.handedness?.findIndex(categories =>
-    categories?.some(category =>
-      category.categoryName === label || category.displayName === label,
-    ),
-  );
-  return index >= 0 ? latestHolisticResult.handLandmarks?.[index] ?? [] : [];
-}
+[smoothingRange, confidenceRange, showSkeletonCheckbox, mirrorCameraCheckbox]
+  .forEach(control => {
+    control.addEventListener('input', persistSettings);
+    control.addEventListener('change', persistSettings);
+  });
 
 window.addEventListener('pagehide', () => {
-  stopWebcam();
+  tracking = false;
+  cancelScheduledFrame();
+  cameraStream?.getTracks().forEach(track => track.stop());
   closeLandmarkers();
+  liveAvatar?.dispose();
+  previewAvatar?.dispose();
 }, { once: true });
 
-persistSettings();
-setCameraUiState(false);
+loadSettings();
+createPreview();
+loadDriveConfig();
