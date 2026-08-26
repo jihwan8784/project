@@ -1,9 +1,18 @@
 import { closeLandmarkers, initPoseLandmarker, getPoseData } from './poseLandmarker.js';
 import { drawSkeleton, resetSkeletonState } from './ui.js';
 import { create2DAvatar, DEFAULT_AVATAR_OPTIONS } from './avatar2d.js';
+import {
+  OPTION_GROUPS,
+  buildAvatarAssetManifest,
+  normalizeSelection,
+  optionReferencePath,
+  selectionToAppearance,
+} from './avatarOptions.js';
 
 const optionSetup = document.getElementById('optionSetup');
 const optionPreview = document.getElementById('optionAvatarPreview');
+const optionReferenceImage = document.getElementById('optionReferenceImage');
+const optionReferenceCaption = document.getElementById('optionReferenceCaption');
 const completeOptionsButton = document.getElementById('completeOptionsButton');
 const setupStatus = document.getElementById('setupStatus');
 const trackingStage = document.getElementById('trackingStage');
@@ -25,6 +34,14 @@ const confidenceValue = document.getElementById('confidenceValue');
 const showSkeletonCheckbox = document.getElementById('showSkeletonCheckbox');
 const mirrorCameraCheckbox = document.getElementById('mirrorCameraCheckbox');
 const captureStatus = document.getElementById('captureStatus');
+const optionSelects = {
+  gender: document.getElementById('genderSelect'),
+  age: document.getElementById('ageSelect'),
+  body: document.getElementById('bodySelect'),
+  occupation: document.getElementById('occupationSelect'),
+  background: document.getElementById('backgroundSelect'),
+  theme: document.getElementById('themeSelect'),
+};
 
 const CORE_LANDMARKS = [11, 12, 23, 24];
 const LOST_POSE_GRACE_MS = 650;
@@ -41,13 +58,93 @@ let lastCaptureName = '';
 let googleClientId = '';
 let googleTokenClient = null;
 let googleAccessToken = '';
+let currentSelection = readStoredSelection();
+
+const OPTION_LABELS = {
+  gender: '성별', age: '연령대', body: '체형', occupation: '직업군', background: '배경', theme: '테마',
+};
+
+function readStoredSelection() {
+  try {
+    return normalizeSelection(JSON.parse(localStorage.getItem('poseVisionAvatarSelection') || '{}'));
+  } catch {
+    return normalizeSelection();
+  }
+}
+
+function fillSelect(select, options, value) {
+  select.replaceChildren(...options.map(option => {
+    const element = document.createElement('option');
+    element.value = option.value;
+    element.textContent = option.label;
+    return element;
+  }));
+  select.value = value;
+}
+
+function selectedLabel(group, value) {
+  const options = group === 'body'
+    ? OPTION_GROUPS.bodyByGender[currentSelection.gender]
+    : OPTION_GROUPS[group];
+  return options.find(option => option.value === value)?.label || value;
+}
+
+function showOptionReference(group) {
+  const path = optionReferencePath(group, currentSelection[group], currentSelection);
+  const label = selectedLabel(group, currentSelection[group]);
+  optionReferenceImage.hidden = true;
+  optionReferenceImage.dataset.requested = path;
+  optionReferenceCaption.textContent = `${OPTION_LABELS[group]} · ${label}`;
+  optionReferenceImage.onload = () => {
+    if (optionReferenceImage.dataset.requested === path) optionReferenceImage.hidden = false;
+  };
+  optionReferenceImage.onerror = () => {
+    if (optionReferenceImage.dataset.requested !== path) return;
+    optionReferenceImage.hidden = true;
+    optionReferenceCaption.textContent = `${OPTION_LABELS[group]} · ${label} (2D 미리보기)`;
+  };
+  optionReferenceImage.src = path;
+}
+
+function applyOptionSelection(changedGroup = 'theme') {
+  currentSelection = normalizeSelection(Object.fromEntries(
+    Object.entries(optionSelects).map(([key, select]) => [key, select.value]),
+  ));
+  localStorage.setItem('poseVisionAvatarSelection', JSON.stringify(currentSelection));
+  localStorage.setItem('poseVisionAvatarAssetManifest', JSON.stringify(buildAvatarAssetManifest(currentSelection)));
+  previewAvatar?.updateAppearance(selectionToAppearance(currentSelection));
+  showOptionReference(changedGroup);
+}
+
+function initializeOptionControls() {
+  fillSelect(optionSelects.gender, OPTION_GROUPS.gender, currentSelection.gender);
+  fillSelect(optionSelects.age, OPTION_GROUPS.age, currentSelection.age);
+  fillSelect(optionSelects.body, OPTION_GROUPS.bodyByGender[currentSelection.gender], currentSelection.body);
+  fillSelect(optionSelects.occupation, OPTION_GROUPS.occupation, currentSelection.occupation);
+  fillSelect(optionSelects.background, OPTION_GROUPS.background, currentSelection.background);
+  fillSelect(optionSelects.theme, OPTION_GROUPS.theme, currentSelection.theme);
+
+  Object.entries(optionSelects).forEach(([group, select]) => {
+    select.addEventListener('change', () => {
+      if (group === 'gender') {
+        currentSelection.gender = select.value;
+        const bodies = OPTION_GROUPS.bodyByGender[currentSelection.gender];
+        const nextBody = bodies.some(option => option.value === optionSelects.body.value)
+          ? optionSelects.body.value
+          : 'standard';
+        fillSelect(optionSelects.body, bodies, nextBody);
+      }
+      applyOptionSelection(group);
+    });
+  });
+}
 
 function readStoredAvatarOptions() {
+  let stored = {};
   try {
-    return { ...DEFAULT_AVATAR_OPTIONS, ...JSON.parse(localStorage.getItem('poseVisionAvatarStyle') || '{}') };
-  } catch {
-    return { ...DEFAULT_AVATAR_OPTIONS };
-  }
+    stored = JSON.parse(localStorage.getItem('poseVisionAvatarStyle') || '{}');
+  } catch {}
+  return { ...DEFAULT_AVATAR_OPTIONS, ...stored, ...selectionToAppearance(currentSelection) };
 }
 
 function createPreview() {
@@ -415,6 +512,8 @@ window.addEventListener('pagehide', () => {
   previewAvatar?.dispose();
 }, { once: true });
 
+initializeOptionControls();
 loadSettings();
 createPreview();
+applyOptionSelection('theme');
 loadDriveConfig();

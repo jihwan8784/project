@@ -19,23 +19,25 @@
 
       <div class="option-layout">
         <figure class="option-visual">
+          <img id="optionReferenceImage" class="option-reference-image" alt="선택 옵션 참고 이미지" hidden />
           <div id="optionAvatarPreview" class="option-avatar-preview" aria-label="선택 옵션 아바타 미리보기"></div>
-          <figcaption>선택한 옵션의 대표 이미지</figcaption>
+          <figcaption id="optionReferenceCaption">선택한 옵션의 2D 아바타 미리보기</figcaption>
         </figure>
 
         <section class="option-panel" aria-label="아바타 옵션">
           <div>
             <p class="panel-kicker">AVATAR OPTION</p>
-            <h2>기본 VTuber 스타일</h2>
-            <p class="option-description">세부 옵션은 추후 이 영역에 추가할 수 있습니다.</p>
+            <h2>아바타 조합</h2>
+            <p class="option-description">각 옵션을 선택하면 왼쪽 이미지와 2D 파츠 구성이 변경됩니다.</p>
           </div>
-          <label class="preset-card">
-            <input type="radio" name="avatarPreset" value="default" checked />
-            <span>
-              <b>기본 프리셋</b>
-              <small>툰 셰이딩 · 리본 · 아이돌 의상</small>
-            </span>
-          </label>
+          <div class="option-fields">
+            <label class="option-field"><span>성별</span><select id="genderSelect"></select></label>
+            <label class="option-field"><span>연령대</span><select id="ageSelect"></select></label>
+            <label class="option-field"><span>체형</span><select id="bodySelect"></select></label>
+            <label class="option-field"><span>직업군</span><select id="occupationSelect"></select></label>
+            <label class="option-field"><span>배경</span><select id="backgroundSelect"></select></label>
+            <label class="option-field"><span>테마</span><select id="themeSelect"></select></label>
+          </div>
           <button id="completeOptionsButton" class="primary-action" type="button">옵션 선택 완료</button>
           <p id="setupStatus" class="setup-status" aria-live="polite"></p>
         </section>

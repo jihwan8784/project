@@ -7,6 +7,12 @@ export const DEFAULT_AVATAR_OPTIONS = Object.freeze({
   accentColor: '#69e6d5',
   shoeColor: '#e9edf2',
   bodyType: 'balanced',
+  bodyVariant: 'standard',
+  gender: 'male',
+  ageGroup: '10-20',
+  occupation: 'student',
+  backgroundStyle: 'neon-future-city',
+  theme: 'cyberpunk',
   faceShape: 'oval',
   hairStyle: 'wave',
   outfitStyle: 'idol',
@@ -96,6 +102,98 @@ function drawCircle(ctx, center, radius, color, outlineWidth = 5) {
   ctx.stroke();
 }
 
+function drawPreviewBackground(ctx, width, height, style) {
+  const palettes = {
+    'neon-future-city': ['#080b21', '#243b77', '#ff3ac8'],
+    'space-station': ['#070b16', '#26354c', '#c7e7ff'],
+    laboratory: ['#0b1820', '#28525b', '#9df8e7'],
+    'rainy-neon-street': ['#080915', '#262347', '#4ad7ff'],
+  };
+  const colors = palettes[style] || palettes['neon-future-city'];
+  const gradient = ctx.createLinearGradient(0, 0, width, height);
+  gradient.addColorStop(0, colors[0]);
+  gradient.addColorStop(0.62, colors[1]);
+  gradient.addColorStop(1, colors[2]);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.globalAlpha = 0.22;
+  ctx.strokeStyle = colors[2];
+  ctx.lineWidth = 2;
+  for (let index = -4; index < 12; index += 1) {
+    ctx.beginPath();
+    ctx.moveTo(index * width * 0.12, height);
+    ctx.lineTo(width * 0.5 + index * width * 0.035, height * 0.45);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawOccupationDetails(ctx, points, headCenter, headRadius, shoulderWidth, torsoHeight, options) {
+  const occupation = options.occupation;
+  const center = average([points[11], points[12], points[23], points[24]]);
+  if (!center) return;
+  ctx.save();
+  ctx.strokeStyle = options.accentColor;
+  ctx.fillStyle = options.accentColor;
+  ctx.lineWidth = Math.max(3, shoulderWidth * 0.035);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  if (['doctor', 'nurse'].includes(occupation)) {
+    const size = shoulderWidth * 0.13;
+    ctx.fillRect(center.x - size * 0.22, center.y - size, size * 0.44, size * 2);
+    ctx.fillRect(center.x - size, center.y - size * 0.22, size * 2, size * 0.44);
+  } else if (occupation === 'student') {
+    ctx.beginPath();
+    ctx.moveTo(points[11].x, points[11].y);
+    ctx.lineTo(center.x, center.y + torsoHeight * 0.18);
+    ctx.lineTo(points[12].x, points[12].y);
+    ctx.stroke();
+  } else if (occupation === 'astronaut') {
+    ctx.beginPath();
+    ctx.arc(headCenter.x, headCenter.y, headRadius * 1.16, Math.PI * 0.72, Math.PI * 2.28);
+    ctx.stroke();
+  } else if (occupation === 'hacker') {
+    ctx.beginPath();
+    ctx.arc(headCenter.x, headCenter.y + headRadius * 0.08, headRadius * 1.12, Math.PI, Math.PI * 2);
+    ctx.stroke();
+  } else if (occupation === 'police') {
+    ctx.fillRect(headCenter.x - headRadius * 0.68, headCenter.y - headRadius * 1.02, headRadius * 1.36, headRadius * 0.18);
+    ctx.fillRect(headCenter.x - headRadius * 0.4, headCenter.y - headRadius * 1.24, headRadius * 0.8, headRadius * 0.25);
+  } else if (occupation === 'firefighter') {
+    ctx.beginPath();
+    ctx.arc(headCenter.x, headCenter.y - headRadius * 0.28, headRadius * 0.84, Math.PI, Math.PI * 2);
+    ctx.lineTo(headCenter.x + headRadius * 0.92, headCenter.y - headRadius * 0.14);
+    ctx.lineTo(headCenter.x - headRadius * 0.92, headCenter.y - headRadius * 0.14);
+    ctx.closePath();
+    ctx.fill();
+  } else if (occupation === 'chef') {
+    [-0.45, 0, 0.45].forEach(offset => {
+      ctx.beginPath();
+      ctx.arc(headCenter.x + headRadius * offset, headCenter.y - headRadius * 1.08, headRadius * 0.43, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  } else if (occupation === 'singer' && points[16]) {
+    ctx.beginPath();
+    ctx.moveTo(points[16].x, points[16].y);
+    ctx.lineTo(points[16].x + shoulderWidth * 0.08, points[16].y + torsoHeight * 0.24);
+    ctx.stroke();
+    drawCircle(ctx, points[16], shoulderWidth * 0.055, options.accentColor, 2);
+  } else if (occupation === 'drone-pilot') {
+    ctx.beginPath();
+    ctx.arc(headCenter.x, headCenter.y, headRadius * 1.08, Math.PI, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillRect(headCenter.x + headRadius, headCenter.y - headRadius * 0.05, headRadius * 0.16, headRadius * 0.42);
+  } else if (occupation === 'teacher') {
+    ctx.beginPath();
+    ctx.moveTo(center.x, points[11].y);
+    ctx.lineTo(center.x, points[23].y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function drawAvatar(ctx, width, height, result, options, overlayMode) {
   const source = result?.poseLandmarks;
   const landmarks = Array.isArray(source?.[0]) ? source[0] : source;
@@ -116,12 +214,16 @@ function drawAvatar(ctx, width, height, result, options, overlayMode) {
     points = defaultPose(width, height);
   }
 
+  if (!overlayMode) drawPreviewBackground(ctx, width, height, options.backgroundStyle);
+
   const shoulderCenter = average([points[11], points[12]]);
   const hipCenter = average([points[23], points[24]]);
   if (!shoulderCenter || !hipCenter) return;
   const shoulderWidth = Math.max(distance(points[11], points[12]), distance(shoulderCenter, hipCenter) * 0.82);
   const torsoHeight = Math.max(distance(shoulderCenter, hipCenter), shoulderWidth * 0.72);
-  const bodyFactor = options.bodyType === 'slim' ? 0.86 : options.bodyType === 'athletic' ? 1.14 : 1;
+  const bodyFactor = options.bodyVariant === 'slim'
+    ? 0.84
+    : options.bodyVariant === 'muscular' ? 1.18 : options.bodyVariant === 'volume' ? 1.1 : 1;
   const outlineWidth = Math.max(3, shoulderWidth * 0.035);
   const armWidth = shoulderWidth * 0.2 * bodyFactor;
   const legWidth = shoulderWidth * 0.27 * bodyFactor;
@@ -134,8 +236,12 @@ function drawAvatar(ctx, width, height, result, options, overlayMode) {
   ctx.globalAlpha = overlayMode ? 0.96 : 1;
 
   // Legs and shoes.
-  strokePath(ctx, [points[23], points[25], points[27]], options.bottomColor, legWidth);
-  strokePath(ctx, [points[24], points[26], points[28]], options.bottomColor, legWidth);
+  strokePath(ctx, [points[23], points[25]], options.bottomColor, legWidth * 1.08);
+  strokePath(ctx, [points[25], points[27]], options.bottomColor, legWidth * 0.9);
+  strokePath(ctx, [points[24], points[26]], options.bottomColor, legWidth * 1.08);
+  strokePath(ctx, [points[26], points[28]], options.bottomColor, legWidth * 0.9);
+  drawCircle(ctx, points[25], legWidth * 0.46, options.accentColor, outlineWidth);
+  drawCircle(ctx, points[26], legWidth * 0.46, options.accentColor, outlineWidth);
   strokePath(ctx, [points[27], points[31]], options.shoeColor, legWidth * 0.72);
   strokePath(ctx, [points[28], points[32]], options.shoeColor, legWidth * 0.72);
 
@@ -180,6 +286,8 @@ function drawAvatar(ctx, width, height, result, options, overlayMode) {
   strokePath(ctx, [points[12], points[14]], options.topColor, armWidth * 1.22);
   strokePath(ctx, [points[13], points[15]], options.skinColor, armWidth);
   strokePath(ctx, [points[14], points[16]], options.skinColor, armWidth);
+  drawCircle(ctx, points[13], armWidth * 0.54, options.accentColor, outlineWidth);
+  drawCircle(ctx, points[14], armWidth * 0.54, options.accentColor, outlineWidth);
   drawCircle(ctx, points[15], armWidth * 0.53, options.skinColor, outlineWidth);
   drawCircle(ctx, points[16], armWidth * 0.53, options.skinColor, outlineWidth);
 
@@ -259,6 +367,21 @@ function drawAvatar(ctx, width, height, result, options, overlayMode) {
       { x: ribbonCenter.x - headRadius * 0.38, y: ribbonCenter.y + headRadius * 0.22 },
     ], options.accentColor, outlineWidth * 0.7);
   }
+
+  if (options.theme === 'mecha') {
+    [points[11], points[12], points[23], points[24]].forEach(point => {
+      drawCircle(ctx, point, shoulderWidth * 0.075, options.accentColor, outlineWidth * 0.7);
+    });
+  } else {
+    ctx.strokeStyle = options.accentColor;
+    ctx.lineWidth = Math.max(2, shoulderWidth * 0.022);
+    ctx.beginPath();
+    ctx.moveTo(points[11].x, points[11].y);
+    ctx.lineTo(points[24].x, points[24].y);
+    ctx.stroke();
+  }
+
+  drawOccupationDetails(ctx, points, headCenter, headRadius, shoulderWidth, torsoHeight, options);
 
   ctx.restore();
 }
