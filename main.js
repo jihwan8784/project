@@ -45,6 +45,9 @@ const optionSelects = {
 
 const CORE_LANDMARKS = [11, 12, 23, 24];
 const LOST_POSE_GRACE_MS = 650;
+const LANDMARK_GRACE_MS = 500;
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const GOOGLE_IDENTITY_SCRIPT = 'https://accounts.google.com/gsi/client';
 let previewAvatar = null;
 let liveAvatar = null;
 let cameraStream = null;
@@ -53,11 +56,14 @@ let scheduledFrameType = null;
 let tracking = false;
 let latestPose = null;
 let lastReliablePoseAt = 0;
+let landmarkSeenAt = new Array(33).fill(0);
 let lastCaptureBlob = null;
 let lastCaptureName = '';
 let googleClientId = '';
 let googleTokenClient = null;
 let googleAccessToken = '';
+let googleTokenExpiresAt = 0;
+let googleIdentityPromise = null;
 let currentSelection = readStoredSelection();
 
 const OPTION_LABELS = {
@@ -185,14 +191,24 @@ function syncCanvasSize() {
   resetSkeletonState();
 }
 
-function smoothPose(pose, previousPose) {
+function smoothPose(pose, previousPose, now) {
   if (!pose?.length) return null;
   const smoothing = getSettings().smoothing;
-  return pose.map((point, index) => {
+  return Array.from({ length: 33 }, (_, index) => {
+    const point = pose[index];
     const previous = previousPose?.[index];
-    if (!point || !previous) return point;
+    const confidence = point
+      ? Math.min(point.visibility ?? 1, point.presence ?? 1)
+      : 0;
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y) || confidence < 0.14) {
+      return previous && now - landmarkSeenAt[index] <= LANDMARK_GRACE_MS
+        ? { ...previous, stale: true }
+        : null;
+    }
+    landmarkSeenAt[index] = now;
+    if (!previous) return { ...point, stale: false };
     const movement = Math.hypot(point.x - previous.x, point.y - previous.y);
-    const response = Math.min(0.72, Math.max(0.12, 0.12 + (1 - smoothing) * 0.28 + movement * 2.2));
+    const response = Math.min(0.68, Math.max(0.1, 0.1 + (1 - smoothing) * 0.24 + movement * 2.4));
     return {
       ...point,
       x: previous.x + (point.x - previous.x) * response,
@@ -200,6 +216,7 @@ function smoothPose(pose, previousPose) {
       z: previous.z == null || point.z == null
         ? point.z
         : previous.z + (point.z - previous.z) * response,
+      stale: false,
     };
   });
 }
@@ -208,7 +225,7 @@ function hasReliablePose(pose) {
   const confidence = getSettings().confidence;
   const reliable = index => {
     const point = pose?.[index];
-    return point && Math.min(point.visibility ?? 1, point.presence ?? 1) >= confidence;
+    return point && !point.stale && Math.min(point.visibility ?? 1, point.presence ?? 1) >= confidence;
   };
   const reliableCount = CORE_LANDMARKS.filter(reliable).length;
   return reliableCount >= 3 && [11, 12].some(reliable) && [23, 24].some(reliable);
@@ -268,7 +285,7 @@ function processFrame(now) {
     const result = getPoseData(webcamVideo, Number.isFinite(now) ? now : performance.now());
     const frameNow = performance.now();
     const rawPose = result?.landmarks?.[0] ?? null;
-    const pose = smoothPose(rawPose, latestPose);
+    const pose = smoothPose(rawPose, latestPose, frameNow);
     const reliable = hasReliablePose(pose);
     if (reliable) {
       latestPose = pose;
@@ -320,6 +337,7 @@ async function startTracking() {
     liveAvatar = create2DAvatar(liveAvatarOverlay, readStoredAvatarOptions(), {
       overlay: true,
     });
+    landmarkSeenAt = new Array(33).fill(0);
     tracking = true;
     scheduleNextFrame();
   } catch (error) {
@@ -344,6 +362,7 @@ function stopTracking() {
   liveAvatarOverlay.hidden = true;
   latestPose = null;
   lastReliablePoseAt = 0;
+  landmarkSeenAt = new Array(33).fill(0);
   trackingStage.hidden = true;
   optionSetup.hidden = false;
   completeOptionsButton.disabled = false;
@@ -400,8 +419,10 @@ async function captureComposite() {
     link.href = URL.createObjectURL(lastCaptureBlob);
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-    driveSaveButton.disabled = !googleAccessToken;
-    captureStatus.textContent = '사진 저장 완료. Drive 연결 후 업로드할 수 있습니다.';
+    driveSaveButton.disabled = !hasValidDriveToken();
+    captureStatus.textContent = hasValidDriveToken()
+      ? '사진 저장 완료. Drive에 업로드할 수 있습니다.'
+      : '사진 저장 완료. Drive 연결 후 업로드할 수 있습니다.';
   } catch (error) {
     captureStatus.textContent = `캡처 실패: ${error.message}`;
   } finally {
@@ -415,50 +436,139 @@ async function loadDriveConfig() {
     const config = await response.json();
     googleClientId = config.clientId || '';
     driveConnectButton.disabled = !config.configured;
-    if (!config.configured) driveConnectButton.title = '.env에 GOOGLE_CLIENT_ID를 설정하세요.';
-  } catch {
+    driveConnectButton.title = config.configured ? '' : (config.reason || '.env에 GOOGLE_CLIENT_ID를 설정하세요.');
+    if (!config.configured) captureStatus.textContent = config.reason || 'Google Drive OAuth 설정이 필요합니다.';
+  } catch (error) {
     driveConnectButton.disabled = true;
+    driveConnectButton.title = 'Google Drive 설정을 확인할 수 없습니다.';
+    console.error('Drive configuration check failed.', error);
   }
 }
 
-function connectGoogleDrive() {
-  if (!googleClientId) return;
-  if (!window.google?.accounts?.oauth2) {
-    captureStatus.textContent = 'Google 로그인 모듈을 불러오는 중입니다. 잠시 후 다시 시도하세요.';
+function loadGoogleIdentity() {
+  if (window.google?.accounts?.oauth2) return Promise.resolve();
+  if (googleIdentityPromise) return googleIdentityPromise;
+  googleIdentityPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = GOOGLE_IDENTITY_SCRIPT;
+    script.async = true;
+    script.onload = () => window.google?.accounts?.oauth2
+      ? resolve()
+      : reject(new Error('Google 로그인 모듈을 초기화하지 못했습니다.'));
+    script.onerror = () => reject(new Error('Google 로그인 모듈을 불러오지 못했습니다.'));
+    document.head.appendChild(script);
+  }).catch(error => {
+    googleIdentityPromise = null;
+    throw error;
+  });
+  return googleIdentityPromise;
+}
+
+function hasValidDriveToken() {
+  return Boolean(googleAccessToken && Date.now() < googleTokenExpiresAt);
+}
+
+function clearDriveToken(message = '') {
+  googleAccessToken = '';
+  googleTokenExpiresAt = 0;
+  driveConnectButton.textContent = 'Google Drive 연결';
+  driveSaveButton.disabled = true;
+  if (message) captureStatus.textContent = message;
+}
+
+async function connectGoogleDrive() {
+  if (!googleClientId) {
+    captureStatus.textContent = '.env에 유효한 GOOGLE_CLIENT_ID를 설정하고 서버를 다시 시작하세요.';
     return;
   }
-  if (!googleTokenClient) {
-    googleTokenClient = window.google.accounts.oauth2.initTokenClient({
-      client_id: googleClientId,
-      scope: 'https://www.googleapis.com/auth/drive.file',
-      callback: response => {
-        if (response.error) {
-          captureStatus.textContent = `Drive 연결 실패: ${response.error}`;
-          return;
-        }
-        googleAccessToken = response.access_token;
-        driveConnectButton.textContent = 'Drive 연결됨';
-        driveSaveButton.disabled = !lastCaptureBlob;
-        captureStatus.textContent = 'Google Drive 연결 완료.';
-      },
-    });
+  if (hasValidDriveToken()) {
+    captureStatus.textContent = 'Google Drive가 이미 연결되어 있습니다.';
+    return;
   }
-  googleTokenClient.requestAccessToken({ prompt: googleAccessToken ? '' : 'consent' });
+
+  driveConnectButton.disabled = true;
+  driveConnectButton.textContent = 'Drive 연결 중';
+  captureStatus.textContent = 'Google 로그인 창을 준비하고 있습니다.';
+  try {
+    await loadGoogleIdentity();
+    if (!googleTokenClient) {
+      googleTokenClient = window.google.accounts.oauth2.initTokenClient({
+        client_id: googleClientId,
+        scope: DRIVE_SCOPE,
+        callback: response => {
+          driveConnectButton.disabled = false;
+          if (response.error || !response.access_token) {
+            clearDriveToken(`Drive 인증 실패: ${response.error_description || response.error || '토큰 없음'}`);
+            return;
+          }
+          const scopeGranted = window.google.accounts.oauth2.hasGrantedAllScopes(response, DRIVE_SCOPE);
+          if (!scopeGranted) {
+            clearDriveToken('Drive 파일 저장 권한이 허용되지 않았습니다. 다시 연결해 권한을 승인하세요.');
+            return;
+          }
+          googleAccessToken = response.access_token;
+          googleTokenExpiresAt = Date.now() + Math.max(60, Number(response.expires_in) || 3600) * 1000 - 60_000;
+          driveConnectButton.textContent = 'Drive 연결됨';
+          driveSaveButton.disabled = !lastCaptureBlob;
+          captureStatus.textContent = 'Google Drive 연결 완료.';
+        },
+        error_callback: error => {
+          driveConnectButton.disabled = false;
+          clearDriveToken(error.type === 'popup_closed'
+            ? 'Google 로그인 창이 닫혔습니다.'
+            : 'Google 로그인 팝업을 열지 못했습니다. 팝업 차단을 해제하세요.');
+        },
+      });
+    }
+    googleTokenClient.requestAccessToken({ prompt: 'consent' });
+  } catch (error) {
+    driveConnectButton.disabled = false;
+    clearDriveToken(`Drive 연결 실패: ${error.message}`);
+  }
+}
+
+function createDriveMultipartBody(file, boundary) {
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelimiter = `\r\n--${boundary}--`;
+  return new Blob([
+    `--${boundary}\r\n`,
+    'Content-Type: application/json; charset=UTF-8\r\n\r\n',
+    JSON.stringify({ name: file.name, mimeType: file.type }),
+    delimiter,
+    `Content-Type: ${file.type}\r\n\r\n`,
+    file,
+    closeDelimiter,
+  ]);
+}
+
+function driveUploadError(response, result) {
+  const apiMessage = result.error?.message;
+  const reason = result.error?.errors?.[0]?.reason;
+  if (response.status === 401) return '로그인 토큰이 만료되었습니다. Drive를 다시 연결하세요.';
+  if (response.status === 403) {
+    return reason === 'accessNotConfigured'
+      ? 'Google Cloud 프로젝트에서 Drive API를 사용 설정하세요.'
+      : 'Drive 권한이 없습니다. OAuth 테스트 사용자와 drive.file 권한을 확인하세요.';
+  }
+  return apiMessage || `Drive API 오류 (${response.status})`;
 }
 
 async function uploadCaptureToDrive() {
-  if (!lastCaptureBlob || !googleAccessToken) return;
+  if (!lastCaptureBlob) {
+    captureStatus.textContent = '먼저 사진을 캡처하세요.';
+    return;
+  }
+  if (!hasValidDriveToken()) {
+    clearDriveToken('Drive 연결이 없거나 만료되었습니다. 다시 연결하세요.');
+    return;
+  }
+
   driveSaveButton.disabled = true;
+  driveSaveButton.textContent = '업로드 중';
   captureStatus.textContent = 'Google Drive에 업로드하고 있습니다.';
   const boundary = `pose_vision_${Date.now()}`;
-  const metadata = { name: lastCaptureName || timestampName(), mimeType: 'image/png' };
-  const body = new Blob([
-    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,
-    JSON.stringify(metadata),
-    `\r\n--${boundary}\r\nContent-Type: image/png\r\n\r\n`,
-    lastCaptureBlob,
-    `\r\n--${boundary}--`,
-  ]);
+  const file = new File([lastCaptureBlob], lastCaptureName || timestampName(), { type: 'image/png' });
+  const body = createDriveMultipartBody(file, boundary);
 
   try {
     const response = await fetch(
@@ -473,13 +583,19 @@ async function uploadCaptureToDrive() {
       },
     );
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error?.message || `HTTP ${response.status}`);
+    if (!response.ok) {
+      const error = new Error(driveUploadError(response, result));
+      error.status = response.status;
+      throw error;
+    }
     captureStatus.textContent = `Drive 저장 완료: ${result.name}`;
+    captureStatus.title = result.webViewLink || '';
   } catch (error) {
-    if (/401|invalid.*credential/i.test(error.message)) googleAccessToken = '';
+    if (error.status === 401) clearDriveToken();
     captureStatus.textContent = `Drive 저장 실패: ${error.message}`;
   } finally {
-    driveSaveButton.disabled = !lastCaptureBlob || !googleAccessToken;
+    driveSaveButton.textContent = 'Drive에 저장';
+    driveSaveButton.disabled = !lastCaptureBlob || !hasValidDriveToken();
   }
 }
 

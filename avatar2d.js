@@ -103,6 +103,14 @@ function drawCircle(ctx, center, radius, color, outlineWidth = 5) {
   ctx.stroke();
 }
 
+function drawJointBridge(ctx, center, radius, color) {
+  if (!center) return;
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
 function drawPreviewBackground(ctx, width, height, style) {
   const palettes = {
     'neon-future-city': ['#080b21', '#243b77', '#ff3ac8'],
@@ -207,7 +215,7 @@ function loadImage(url) {
   return IMAGE_CACHE.get(url);
 }
 
-function drawSegmentSprite(ctx, image, start, end, width, overlap = 0.12) {
+function drawSegmentSprite(ctx, image, start, end, width, overlap = 0.18) {
   if (!image || !start || !end) return;
   const length = distance(start, end);
   if (length < 2) return;
@@ -276,6 +284,7 @@ function drawAvatar(ctx, width, height, result, options, overlayMode, partImages
       points[index] = {
         x: mapping.x + (mapping.mirror ? 1 - point.x : point.x) * mapping.width,
         y: mapping.y + point.y * mapping.height,
+        z: Number(point.z) || 0,
       };
     });
   } else {
@@ -295,21 +304,32 @@ function drawAvatar(ctx, width, height, result, options, overlayMode, partImages
   const outlineWidth = Math.max(3, shoulderWidth * 0.035);
   const armWidth = shoulderWidth * 0.2 * bodyFactor;
   const legWidth = shoulderWidth * 0.27 * bodyFactor;
-  const headRadius = shoulderWidth * 0.34 * Number(options.headScale || 1);
-  const headCenter = points[0]
-    ? { x: points[0].x, y: points[0].y - headRadius * 0.08 }
-    : { x: shoulderCenter.x, y: shoulderCenter.y - torsoHeight * 0.72 };
+  const earCenter = points[7] && points[8] ? average([points[7], points[8]]) : null;
+  const earSpan = distance(points[7], points[8]);
+  const rawHeadRadius = earSpan
+    ? Math.max(earSpan * 0.68, shoulderWidth * 0.26)
+    : shoulderWidth * 0.31;
+  const headRadius = Math.min(shoulderWidth * 0.38, rawHeadRadius) * Number(options.headScale || 1);
+  const headCenter = earCenter
+    ? { x: earCenter.x, y: earCenter.y - headRadius * 0.03 }
+    : points[0]
+      ? { x: points[0].x, y: points[0].y - headRadius * 0.08 }
+      : { x: shoulderCenter.x, y: shoulderCenter.y - torsoHeight * 0.72 };
 
   ctx.save();
   ctx.globalAlpha = overlayMode ? 0.96 : 1;
 
   // Legs and shoes.
+  drawJointBridge(ctx, points[23], legWidth * 0.56, options.bottomColor);
+  drawJointBridge(ctx, points[24], legWidth * 0.56, options.bottomColor);
   strokePath(ctx, [points[23], points[25]], options.bottomColor, legWidth * 1.08);
   strokePath(ctx, [points[25], points[27]], options.bottomColor, legWidth * 0.9);
   strokePath(ctx, [points[24], points[26]], options.bottomColor, legWidth * 1.08);
   strokePath(ctx, [points[26], points[28]], options.bottomColor, legWidth * 0.9);
-  drawCircle(ctx, points[25], legWidth * 0.46, options.accentColor, outlineWidth);
-  drawCircle(ctx, points[26], legWidth * 0.46, options.accentColor, outlineWidth);
+  drawJointBridge(ctx, points[25], legWidth * 0.49, options.bottomColor);
+  drawJointBridge(ctx, points[26], legWidth * 0.49, options.bottomColor);
+  drawJointBridge(ctx, points[27], legWidth * 0.4, options.bottomColor);
+  drawJointBridge(ctx, points[28], legWidth * 0.4, options.bottomColor);
   strokePath(ctx, [points[27], points[31]], options.shoeColor, legWidth * 0.72);
   strokePath(ctx, [points[28], points[32]], options.shoeColor, legWidth * 0.72);
 
@@ -350,12 +370,16 @@ function drawAvatar(ctx, width, height, result, options, overlayMode, partImages
   }
 
   // Sleeves, arms and hands.
+  drawJointBridge(ctx, points[11], armWidth * 0.72, options.topColor);
+  drawJointBridge(ctx, points[12], armWidth * 0.72, options.topColor);
   strokePath(ctx, [points[11], points[13]], options.topColor, armWidth * 1.22);
   strokePath(ctx, [points[12], points[14]], options.topColor, armWidth * 1.22);
   strokePath(ctx, [points[13], points[15]], options.skinColor, armWidth);
   strokePath(ctx, [points[14], points[16]], options.skinColor, armWidth);
-  drawCircle(ctx, points[13], armWidth * 0.54, options.accentColor, outlineWidth);
-  drawCircle(ctx, points[14], armWidth * 0.54, options.accentColor, outlineWidth);
+  drawJointBridge(ctx, points[13], armWidth * 0.58, options.skinColor);
+  drawJointBridge(ctx, points[14], armWidth * 0.58, options.skinColor);
+  drawJointBridge(ctx, points[15], armWidth * 0.52, options.skinColor);
+  drawJointBridge(ctx, points[16], armWidth * 0.52, options.skinColor);
   drawCircle(ctx, points[15], armWidth * 0.53, options.skinColor, outlineWidth);
   drawCircle(ctx, points[16], armWidth * 0.53, options.skinColor, outlineWidth);
 
@@ -437,7 +461,7 @@ function drawAvatar(ctx, width, height, result, options, overlayMode, partImages
   }
 
   if (options.theme === 'mecha') {
-    [points[11], points[12], points[23], points[24]].forEach(point => {
+    [points[11], points[12], points[13], points[14], points[23], points[24], points[25], points[26]].forEach(point => {
       drawCircle(ctx, point, shoulderWidth * 0.075, options.accentColor, outlineWidth * 0.7);
     });
   } else {

@@ -22,6 +22,7 @@ const PORT = Number(process.env.PORT || 8000);
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_ID_VALID = /^[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/.test(GOOGLE_CLIENT_ID);
 const GEMINI_TIMEOUT_MS = 40_000;
 const ROOT = path.resolve(__dirname);
 
@@ -315,8 +316,11 @@ async function handleApi(req, res) {
   if (pathname === '/api/google/status') {
     if (req.method !== 'GET') throw new HttpError(405, '허용되지 않은 요청 방식입니다.');
     sendJson(res, 200, {
-      configured: Boolean(GOOGLE_CLIENT_ID),
-      clientId: GOOGLE_CLIENT_ID,
+      configured: GOOGLE_CLIENT_ID_VALID,
+      clientId: GOOGLE_CLIENT_ID_VALID ? GOOGLE_CLIENT_ID : '',
+      reason: !GOOGLE_CLIENT_ID
+        ? 'GOOGLE_CLIENT_ID가 설정되지 않았습니다.'
+        : GOOGLE_CLIENT_ID_VALID ? '' : 'GOOGLE_CLIENT_ID 형식이 올바르지 않습니다.',
     });
     return;
   }
@@ -377,4 +381,5 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`Pose Vision: http://127.0.0.1:${PORT}/main.html`);
   console.log(`Gemini model: ${GEMINI_MODEL}`);
   console.log(GEMINI_API_KEY ? 'Gemini API key configured.' : 'GEMINI_API_KEY is not configured.');
+  console.log(GOOGLE_CLIENT_ID_VALID ? 'Google Drive OAuth configured.' : 'GOOGLE_CLIENT_ID is not configured or invalid.');
 });
