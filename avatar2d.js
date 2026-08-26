@@ -23,6 +23,7 @@ export const DEFAULT_AVATAR_OPTIONS = Object.freeze({
 });
 
 const OUTLINE = 'rgba(18, 20, 31, 0.92)';
+const IMAGE_CACHE = new Map();
 
 function average(points) {
   const valid = points.filter(Boolean);
@@ -194,7 +195,74 @@ function drawOccupationDetails(ctx, points, headCenter, headRadius, shoulderWidt
   ctx.restore();
 }
 
-function drawAvatar(ctx, width, height, result, options, overlayMode) {
+function loadImage(url) {
+  if (!IMAGE_CACHE.has(url)) {
+    IMAGE_CACHE.set(url, new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = reject;
+      image.src = url;
+    }));
+  }
+  return IMAGE_CACHE.get(url);
+}
+
+function drawSegmentSprite(ctx, image, start, end, width, overlap = 0.12) {
+  if (!image || !start || !end) return;
+  const length = distance(start, end);
+  if (length < 2) return;
+  ctx.save();
+  ctx.translate(start.x, start.y);
+  ctx.rotate(Math.atan2(end.y - start.y, end.x - start.x) - Math.PI / 2);
+  ctx.drawImage(image, -width * 0.5, -length * overlap, width, length * (1 + overlap * 2));
+  ctx.restore();
+}
+
+function drawCenteredSprite(ctx, image, center, width, height = width) {
+  if (!image || !center) return;
+  ctx.drawImage(image, center.x - width * 0.5, center.y - height * 0.5, width, height);
+}
+
+function drawImageParts(ctx, images, points, headCenter, headRadius, shoulderWidth, torsoHeight) {
+  if (!images?.size) return;
+  const shoulderCenter = average([points[11], points[12]]);
+  const hipCenter = average([points[23], points[24]]);
+  const segmentParts = [
+    ['left-upper-arm', 11, 13, 0.24], ['left-forearm', 13, 15, 0.2],
+    ['right-upper-arm', 12, 14, 0.24], ['right-forearm', 14, 16, 0.2],
+    ['left-thigh', 23, 25, 0.31], ['left-calf', 25, 27, 0.25],
+    ['right-thigh', 24, 26, 0.31], ['right-calf', 26, 28, 0.25],
+    ['left-foot', 27, 31, 0.22], ['right-foot', 28, 32, 0.22],
+  ];
+
+  ctx.save();
+  ctx.globalAlpha = 1;
+  drawSegmentSprite(ctx, images.get('torso-base'), shoulderCenter, hipCenter, shoulderWidth * 1.18, 0.08);
+  segmentParts.forEach(([name, start, end, widthFactor]) => {
+    drawSegmentSprite(ctx, images.get(name), points[start], points[end], shoulderWidth * widthFactor);
+  });
+
+  [
+    ['left-shoulder', 11], ['left-elbow', 13], ['left-wrist', 15], ['left-hand', 15],
+    ['right-shoulder', 12], ['right-elbow', 14], ['right-wrist', 16], ['right-hand', 16],
+    ['left-knee', 25], ['left-ankle', 27], ['right-knee', 26], ['right-ankle', 28],
+  ].forEach(([name, index]) => {
+    drawCenteredSprite(ctx, images.get(name), points[index], shoulderWidth * (name.includes('hand') ? 0.22 : 0.18));
+  });
+
+  drawCenteredSprite(ctx, images.get('pelvis'), hipCenter, shoulderWidth * 0.72, torsoHeight * 0.3);
+  drawCenteredSprite(ctx, images.get('waist'), hipCenter, shoulderWidth * 0.68, torsoHeight * 0.18);
+  drawCenteredSprite(ctx, images.get('neck'), shoulderCenter, shoulderWidth * 0.23, torsoHeight * 0.24);
+  ['hair-back', 'head', 'face', 'hair-front'].forEach(name => {
+    drawCenteredSprite(ctx, images.get(name), headCenter, headRadius * 2.35);
+  });
+  drawCenteredSprite(ctx, images.get('chest-overlay'), average([shoulderCenter, hipCenter]), shoulderWidth * 1.05, torsoHeight * 0.72);
+  drawCenteredSprite(ctx, images.get('occupation-gear'), average([shoulderCenter, hipCenter]), shoulderWidth * 1.5, torsoHeight * 2.8);
+  drawCenteredSprite(ctx, images.get('theme-overlay'), average([shoulderCenter, hipCenter]), shoulderWidth * 1.65, torsoHeight * 3.1);
+  ctx.restore();
+}
+
+function drawAvatar(ctx, width, height, result, options, overlayMode, partImages) {
   const source = result?.poseLandmarks;
   const landmarks = Array.isArray(source?.[0]) ? source[0] : source;
   const mapping = result?.mapping;
@@ -382,6 +450,7 @@ function drawAvatar(ctx, width, height, result, options, overlayMode) {
   }
 
   drawOccupationDetails(ctx, points, headCenter, headRadius, shoulderWidth, torsoHeight, options);
+  drawImageParts(ctx, partImages, points, headCenter, headRadius, shoulderWidth, torsoHeight);
 
   ctx.restore();
 }
@@ -395,12 +464,39 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
   let cssHeight = 1;
   let pixelRatio = 1;
   let savedResult = null;
+  let partImages = new Map();
+  let assetGeneration = 0;
   container.appendChild(canvas);
 
   function render() {
     context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     context.clearRect(0, 0, cssWidth, cssHeight);
-    drawAvatar(context, cssWidth, cssHeight, savedResult, options, overlayMode);
+    drawAvatar(context, cssWidth, cssHeight, savedResult, options, overlayMode, partImages);
+  }
+
+  async function loadPartAssets(manifest) {
+    const generation = ++assetGeneration;
+    partImages = new Map();
+    render();
+    const entries = Object.entries(manifest?.parts || {});
+    const headEntry = entries.find(([name]) => name === 'head');
+    if (!headEntry) return;
+    try {
+      const headImage = await loadImage(headEntry[1]);
+      if (generation !== assetGeneration) return;
+      partImages.set('head', headImage);
+      render();
+    } catch {
+      return;
+    }
+
+    await Promise.all(entries.filter(([name]) => name !== 'head').map(async ([name, url]) => {
+      try {
+        const image = await loadImage(url);
+        if (generation === assetGeneration) partImages.set(name, image);
+      } catch {}
+    }));
+    if (generation === assetGeneration) render();
   }
 
   function resize() {
@@ -420,8 +516,10 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
   }
 
   function updateAppearance(nextOptions = {}) {
+    const previousManifest = options.assetManifest;
     Object.assign(options, nextOptions);
     render();
+    if (options.assetManifest !== previousManifest) loadPartAssets(options.assetManifest);
   }
 
   function capture(filename = 'pose-vision-avatar.png') {
@@ -434,12 +532,14 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(container);
   resize();
+  loadPartAssets(options.assetManifest);
 
   return {
     applyPose,
     capture,
     dispose() {
       resizeObserver.disconnect();
+      assetGeneration += 1;
       canvas.remove();
     },
     domElement: canvas,
