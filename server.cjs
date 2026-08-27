@@ -37,6 +37,7 @@ const MIME = {
   '.jpeg': 'image/jpeg',
   '.svg': 'image/svg+xml',
   '.glb': 'model/gltf-binary',
+  '.bvh': 'text/plain; charset=utf-8',
 };
 
 const COLOR_KEYS = [

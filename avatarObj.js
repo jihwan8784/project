@@ -98,17 +98,59 @@ function getBoneRestAngle(bone) {
   return Math.atan2(child.position.x, child.position.y);
 }
 
+const boneWorldQuaternion = new THREE.Quaternion();
+const boneParentQuaternion = new THREE.Quaternion();
+const boneWorldEuler = new THREE.Euler();
+const boneParentEuler = new THREE.Euler();
+const boneDesiredQuaternion = new THREE.Quaternion();
+const boneAlignQuaternion = new THREE.Quaternion();
+const boneLocalQuaternion = new THREE.Quaternion();
+const boneRestDirection = new THREE.Vector3();
+const boneTargetDirection = new THREE.Vector3();
+
+function worldZRotation(object, targetQuaternion, targetEuler) {
+  if (!object) return 0;
+  object.getWorldQuaternion(targetQuaternion);
+  targetEuler.setFromQuaternion(targetQuaternion, 'XYZ');
+  return targetEuler.z;
+}
+
 function setBoneAngle(bone, targetAngle, influence = 1) {
   if (!bone) return;
-  const restAngle = bone.userData.restAngle ?? (bone.userData.restAngle = getBoneRestAngle(bone));
-  bone.rotation.z = (targetAngle - restAngle) * influence;
+  if (bone.userData.restWorldQuaternion && bone.userData.restWorldDirection) {
+    boneTargetDirection.set(Math.sin(targetAngle), Math.cos(targetAngle), 0).normalize();
+    boneAlignQuaternion.setFromUnitVectors(bone.userData.restWorldDirection, boneTargetDirection);
+    boneDesiredQuaternion.copy(boneAlignQuaternion).multiply(bone.userData.restWorldQuaternion);
+    boneWorldQuaternion.copy(bone.getWorldQuaternion(boneWorldQuaternion));
+    boneWorldQuaternion.slerp(boneDesiredQuaternion, influence);
+    if (bone.parent) {
+      boneParentQuaternion.copy(bone.parent.getWorldQuaternion(boneParentQuaternion)).invert();
+      boneLocalQuaternion.copy(boneParentQuaternion).multiply(boneWorldQuaternion);
+      bone.quaternion.copy(boneLocalQuaternion);
+    } else {
+      bone.quaternion.copy(boneWorldQuaternion);
+    }
+    bone.updateMatrixWorld(true);
+    return;
+  }
+  const restWorldAngle = bone.userData.restWorldAngle ?? getBoneRestAngle(bone);
+  const restParentWorldZ = bone.userData.restParentWorldZ ?? 0;
+  const restLocalZ = bone.userData.restLocalZ ?? 0;
+  const parent = bone.parent?.isBone ? bone.parent : null;
+  const parentWorldZ = worldZRotation(parent, boneParentQuaternion, boneParentEuler);
+  const parentDelta = parent ? parentWorldZ - restParentWorldZ : 0;
+  const delta = targetAngle - restWorldAngle - parentDelta;
+  bone.rotation.z = restLocalZ + delta * influence;
 }
 
 function setBoneTilt(bone, x = 0, y = 0, z = 0) {
   if (!bone) return;
-  bone.rotation.x = x;
-  bone.rotation.y = y;
-  if (z != null) bone.rotation.z += z;
+  const restX = bone.userData.restX ?? (bone.userData.restX = bone.rotation.x);
+  const restY = bone.userData.restY ?? (bone.userData.restY = bone.rotation.y);
+  const restZ = bone.userData.restZ ?? (bone.userData.restZ = bone.rotation.z);
+  bone.rotation.x = restX + x;
+  bone.rotation.y = restY + y;
+  if (z != null) bone.rotation.z = restZ + z;
 }
 
 function buildRig(scene) {
@@ -149,12 +191,16 @@ function computePoseFrame(pose, mapping, metrics, width, height, timeSeconds) {
   const elbowR = readPosePoint(pose, mapping, 14);
   const wristL = readPosePoint(pose, mapping, 15);
   const wristR = readPosePoint(pose, mapping, 16);
+  const indexL = readPosePoint(pose, mapping, 19);
+  const indexR = readPosePoint(pose, mapping, 20);
   const hipL = readPosePoint(pose, mapping, 23);
   const hipR = readPosePoint(pose, mapping, 24);
   const kneeL = readPosePoint(pose, mapping, 25);
   const kneeR = readPosePoint(pose, mapping, 26);
   const ankleL = readPosePoint(pose, mapping, 27);
   const ankleR = readPosePoint(pose, mapping, 28);
+  const footIndexL = readPosePoint(pose, mapping, 31);
+  const footIndexR = readPosePoint(pose, mapping, 32);
   const earCenter = poseAverage(pose, mapping, [7, 8]);
   const eyeCenter = poseAverage(pose, mapping, [1, 2]);
   const nose = readPosePoint(pose, mapping, 0);
@@ -173,8 +219,8 @@ function computePoseFrame(pose, mapping, metrics, width, height, timeSeconds) {
   const topY = (headAnchor?.y ?? shoulderCenter.y) - headRadius * 1.6;
   const bottomY = (ankleCenter?.y ?? (hipCenter.y + torsoHeight * 1.55)) + headRadius * 0.36;
   const centerX = average([shoulderCenter.x, hipCenter.x]);
-  const targetHeight = Math.max(1, bottomY - topY) * 1.18;
-  const targetWidth = Math.max(shoulderWidth * 2.86, torsoHeight * 0.92) * 1.12;
+  const targetHeight = Math.max(1, bottomY - topY) * 0.82;
+  const targetWidth = Math.max(shoulderWidth * 2.45, torsoHeight * 0.82);
   const scale = Math.min(targetHeight / metrics.modelHeight, targetWidth / metrics.modelWidth) * Number(metrics.options.heightScale || 1);
 
   const position = screenToWorld(width, height, centerX, bottomY);
@@ -184,7 +230,8 @@ function computePoseFrame(pose, mapping, metrics, width, height, timeSeconds) {
   const lean = Math.sin(timeSeconds * 0.85) * 0.02;
 
   const bodyTilt = Math.atan2((hipCenter.y - shoulderCenter.y), (hipCenter.x - shoulderCenter.x)) - Math.PI / 2;
-  const faceTurn = Math.atan2((shoulderR?.x ?? centerX) - (shoulderL?.x ?? centerX), (shoulderR?.y ?? shoulderL?.y ?? 1) - (shoulderL?.y ?? shoulderR?.y ?? 0));
+  const faceOffset = nose && eyeCenter ? (nose.x - eyeCenter.x) / Math.max(headRadius, 1) : 0;
+  const faceTurn = clamp(faceOffset * 0.8, -0.55, 0.55);
   const handY = Math.sin(timeSeconds * 2.6) * 0.06;
 
   return {
@@ -203,12 +250,16 @@ function computePoseFrame(pose, mapping, metrics, width, height, timeSeconds) {
     elbowR,
     wristL,
     wristR,
+    indexL,
+    indexR,
     hipL,
     hipR,
     kneeL,
     kneeR,
     ankleL,
     ankleR,
+    footIndexL,
+    footIndexR,
     headAnchor,
   };
 }
@@ -321,10 +372,14 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     const angleLForearm = worldAngleFromPose(state.elbowL, state.wristL);
     const angleRUpperArm = worldAngleFromPose(state.shoulderR, state.elbowR);
     const angleRForearm = worldAngleFromPose(state.elbowR, state.wristR);
+    const angleLHand = worldAngleFromPose(state.wristL, state.indexL) || angleLForearm;
+    const angleRHand = worldAngleFromPose(state.wristR, state.indexR) || angleRForearm;
     const angleLThigh = worldAngleFromPose(state.hipL, state.kneeL);
     const angleLShin = worldAngleFromPose(state.kneeL, state.ankleL);
     const angleRThigh = worldAngleFromPose(state.hipR, state.kneeR);
     const angleRShin = worldAngleFromPose(state.kneeR, state.ankleR);
+    const angleLFoot = worldAngleFromPose(state.ankleL, state.footIndexL) || angleLShin;
+    const angleRFoot = worldAngleFromPose(state.ankleR, state.footIndexR) || angleRShin;
 
     setBoneAngle(rig.hips, bodyLean * 0.55 + Math.sin(timeSeconds * 0.8) * 0.02);
     setBoneAngle(rig.spine, bodyLean * 0.38);
@@ -336,15 +391,19 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     setBoneAngle(rig.forearmL, angleLForearm);
     setBoneAngle(rig.upperArmR, angleRUpperArm);
     setBoneAngle(rig.forearmR, angleRForearm);
+    setBoneAngle(rig.handL, angleLHand, 0.9);
+    setBoneAngle(rig.handR, angleRHand, 0.9);
     setBoneAngle(rig.thighL, angleLThigh);
     setBoneAngle(rig.shinL, angleLShin);
     setBoneAngle(rig.thighR, angleRThigh);
     setBoneAngle(rig.shinR, angleRShin);
+    setBoneAngle(rig.footL, angleLFoot, 0.9);
+    setBoneAngle(rig.footR, angleRFoot, 0.9);
 
-    setBoneTilt(rig.handL, 0, 0, state.handY * 0.4);
-    setBoneTilt(rig.handR, 0, 0, -state.handY * 0.4);
-    setBoneTilt(rig.footL, 0, 0, -state.handY * 0.25);
-    setBoneTilt(rig.footR, 0, 0, state.handY * 0.25);
+    setBoneTilt(rig.handL, 0, state.handY * 0.3, null);
+    setBoneTilt(rig.handR, 0, -state.handY * 0.3, null);
+    setBoneTilt(rig.footL, state.handY * 0.2, 0, null);
+    setBoneTilt(rig.footR, -state.handY * 0.2, 0, null);
 
     if (rig.toeL) setBoneTilt(rig.toeL, 0, 0, -state.handY * 0.15);
     if (rig.toeR) setBoneTilt(rig.toeR, 0, 0, state.handY * 0.15);
@@ -363,8 +422,8 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     } else if (loaded && modelMetrics) {
       // Keep the setup preview readable before the camera has a reliable pose.
       const idleScale = Math.min(
-        (cssHeight * 0.76) / modelMetrics.modelHeight,
-        (cssWidth * 0.52) / modelMetrics.modelWidth,
+        (cssHeight * 0.62) / modelMetrics.modelHeight,
+        (cssWidth * 0.44) / modelMetrics.modelWidth,
       ) * Number(options.heightScale || 1);
       root.position.set(0, -modelMetrics.modelHeight * idleScale * 0.48, 0);
       root.scale.setScalar(idleScale);
@@ -423,6 +482,24 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
 
       root.add(model);
       rig = buildRig(model);
+      model.updateMatrixWorld(true);
+      Object.values(rig).forEach(bone => {
+        if (!bone) return;
+        const child = bone.children?.find(item => item.isBone);
+        const bonePosition = bone.getWorldPosition(new THREE.Vector3());
+        const childPosition = child?.getWorldPosition(new THREE.Vector3());
+        bone.userData.restWorldDirection = childPosition
+          ? childPosition.sub(bonePosition).normalize()
+          : null;
+        bone.userData.restWorldQuaternion = bone.getWorldQuaternion(new THREE.Quaternion()).clone();
+        bone.userData.restWorldAngle = childPosition
+          ? Math.atan2(childPosition.x - bonePosition.x, childPosition.y - bonePosition.y)
+          : 0;
+        bone.userData.restLocalZ = bone.rotation.z;
+        bone.userData.restParentWorldZ = bone.parent?.isBone
+          ? worldZRotation(bone.parent, boneParentQuaternion, boneParentEuler)
+          : 0;
+      });
       loaded = true;
       if (gltf.animations?.length && gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
@@ -433,6 +510,7 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
       loaded = false;
     }
   }
+
 
   function resize() {
     cssWidth = Math.max(1, container.clientWidth);

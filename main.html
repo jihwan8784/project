@@ -43,9 +43,17 @@
     </section>
 
     <section id="trackingStage" class="tracking-stage" hidden aria-label="실시간 아바타 트래킹">
-      <video id="webcamVideo" autoplay muted playsinline></video>
-      <canvas id="webcamCanvas"></canvas>
-      <div id="liveAvatarOverlay" class="live-avatar-overlay" hidden aria-hidden="true"></div>
+      <div class="tracking-columns">
+        <section class="camera-panel" aria-label="웹캠 화면">
+          <video id="webcamVideo" autoplay muted playsinline></video>
+          <canvas id="webcamCanvas"></canvas>
+          <p class="stage-label">CAMERA</p>
+        </section>
+        <section class="avatar-panel" aria-label="실시간 아바타 화면">
+          <div id="liveAvatarOverlay" class="live-avatar-overlay" hidden aria-hidden="true"></div>
+          <p class="stage-label">AVATAR</p>
+        </section>
+      </div>
 
       <div class="tracking-hud">
         <p id="detectionStatus" class="status-pill" aria-live="polite">Pose Lite 준비 중</p>

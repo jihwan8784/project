@@ -130,7 +130,33 @@ h1 { margin-bottom: 10px; font-size: clamp(2rem, 5vw, 3.6rem); }
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: #05070b;
+  background: #070a12;
+}
+
+.tracking-columns {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px;
+}
+
+.camera-panel, .avatar-panel {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 22px;
+}
+
+.camera-panel { background: #05070b; }
+.avatar-panel {
+  background:
+    radial-gradient(circle at 50% 28%, rgba(118, 234, 219, 0.2), transparent 30%),
+    radial-gradient(circle at 75% 80%, rgba(158, 140, 255, 0.28), transparent 38%),
+    linear-gradient(145deg, #17152e, #0c1e2a 60%, #081018);
 }
 
 #webcamVideo, #webcamCanvas {
@@ -142,6 +168,23 @@ h1 { margin-bottom: 10px; font-size: clamp(2rem, 5vw, 3.6rem); }
 }
 
 #webcamCanvas { pointer-events: none; }
+
+.stage-label {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  left: 14px;
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(5, 7, 12, 0.5);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  backdrop-filter: blur(10px);
+}
 
 .live-avatar-overlay {
   position: absolute;
@@ -237,4 +280,7 @@ h1 { margin-bottom: 10px; font-size: clamp(2rem, 5vw, 3.6rem); }
   .hud-button { flex: 1 1 auto; }
   .settings-panel { top: 68px; right: 12px; }
   .capture-status { right: 12px; bottom: 8px; }
+  .tracking-columns { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; padding: 10px; }
+  .camera-panel, .avatar-panel { border-radius: 16px; }
+  .status-pill { top: 18px; }
 }

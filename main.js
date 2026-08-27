@@ -13,6 +13,8 @@ const optionReferenceCaption = document.getElementById('optionReferenceCaption')
 const completeOptionsButton = document.getElementById('completeOptionsButton');
 const setupStatus = document.getElementById('setupStatus');
 const trackingStage = document.getElementById('trackingStage');
+const cameraPanel = document.querySelector('.camera-panel');
+const avatarPanel = document.querySelector('.avatar-panel');
 const webcamVideo = document.getElementById('webcamVideo');
 const webcamCanvas = document.getElementById('webcamCanvas');
 const liveAvatarOverlay = document.getElementById('liveAvatarOverlay');
@@ -155,7 +157,9 @@ function loadSettings() {
   try { stored = JSON.parse(localStorage.getItem('poseVisionSettings') || '{}'); } catch {}
   if (stored.smoothing != null) smoothingRange.value = stored.smoothing;
   if (stored.confidence != null) confidenceRange.value = stored.confidence;
-  showSkeletonCheckbox.checked = stored.showSkeleton === true;
+  // Skeleton feedback is enabled by default so the user can immediately see
+  // whether the camera recognizer is receiving a usable pose.
+  showSkeletonCheckbox.checked = true;
   mirrorCameraCheckbox.checked = stored.mirror !== false;
   persistSettings();
 }
@@ -212,7 +216,9 @@ function hasReliablePose(pose) {
     return point && !point.stale && Math.min(point.visibility ?? 1, point.presence ?? 1) >= confidence;
   };
   const reliableCount = CORE_LANDMARKS.filter(reliable).length;
-  return reliableCount >= 3 && [11, 12].some(reliable) && [23, 24].some(reliable);
+  // A partial body is still useful for the avatar. Requiring three of four
+  // points made tracking disappear whenever one shoulder or hip was occluded.
+  return reliableCount >= 2 && [11, 12].some(reliable) && [23, 24].some(reliable);
 }
 
 function getCoverMetrics(width, height) {
@@ -235,11 +241,14 @@ function getFaceBlendshapes(result) {
 
 function updateLiveAvatar(result, pose) {
   if (!liveAvatar) return;
-  const cover = getCoverMetrics(trackingStage.clientWidth, trackingStage.clientHeight);
+  const width = Math.max(1, avatarPanel.clientWidth);
+  const height = Math.max(1, avatarPanel.clientHeight);
   liveAvatar.applyPose({
     poseLandmarks: pose,
     faceBlendshapes: getFaceBlendshapes(result),
-    mapping: { ...cover, mirror: getSettings().mirror },
+    // The camera and avatar are separate panels. Keep the pose normalized so
+    // the avatar is positioned inside its own panel, not in camera coordinates.
+    mapping: { x: 0, y: 0, width, height, mirror: getSettings().mirror },
   });
   liveAvatarOverlay.classList.add('is-visible');
 }
@@ -373,6 +382,16 @@ function drawVideoCover(context, width, height, mirror) {
   return cover;
 }
 
+function drawCameraPanel(context, x, y, width, height, mirror) {
+  context.save();
+  context.beginPath();
+  context.rect(x, y, width, height);
+  context.clip();
+  context.translate(x, y);
+  drawVideoCover(context, width, height, mirror);
+  context.restore();
+}
+
 function canvasToBlob(canvas) {
   return new Promise((resolve, reject) => {
     canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('이미지 생성에 실패했습니다.')), 'image/png');
@@ -394,14 +413,27 @@ async function captureComposite() {
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext('2d');
-    drawVideoCover(context, width, height, getSettings().mirror);
+    const stageRect = trackingStage.getBoundingClientRect();
+    const cameraRect = cameraPanel.getBoundingClientRect();
+    const avatarRect = avatarPanel.getBoundingClientRect();
+    const cameraX = cameraRect.left - stageRect.left;
+    const cameraY = cameraRect.top - stageRect.top;
+    const avatarX = avatarRect.left - stageRect.left;
+    const avatarY = avatarRect.top - stageRect.top;
+    const panelWidth = Math.max(1, avatarRect.width);
+    const panelHeight = Math.max(1, avatarRect.height);
+    const avatarGradient = context.createLinearGradient(avatarX, avatarY, avatarX + panelWidth, avatarY + panelHeight);
+    avatarGradient.addColorStop(0, '#17152e');
+    avatarGradient.addColorStop(1, '#081018');
+    context.fillStyle = avatarGradient;
+    context.fillRect(avatarX, avatarY, panelWidth, panelHeight);
+    drawCameraPanel(context, cameraX, cameraY, cameraRect.width, cameraRect.height, getSettings().mirror);
 
     if (getSettings().showSkeleton) {
-      const cover = getCoverMetrics(width, height);
-      context.drawImage(webcamCanvas, cover.x, cover.y, cover.width, cover.height);
+      context.drawImage(webcamCanvas, cameraX, cameraY, cameraRect.width, cameraRect.height);
     }
 
-    context.drawImage(liveAvatar.domElement, 0, 0, width, height);
+    context.drawImage(liveAvatar.domElement, avatarX, avatarY, panelWidth, panelHeight);
 
     lastCaptureBlob = await canvasToBlob(canvas);
     lastCaptureName = timestampName();
