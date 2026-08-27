@@ -28,9 +28,11 @@ export const DEFAULT_AVATAR_OPTIONS = Object.freeze({
   renderStyle: 'glb-rigged-3d',
 });
 
-const UP = new THREE.Vector3(0, 1, 0);
-const tempVectorA = new THREE.Vector3();
-const tempVectorB = new THREE.Vector3();
+const REQUIRED_MOTION_BONES = [
+  'upperArmL', 'forearmL', 'upperArmR', 'forearmR',
+  'thighL', 'shinL', 'thighR', 'shinR',
+];
+
 const tempQuaternionA = new THREE.Quaternion();
 const tempQuaternionB = new THREE.Quaternion();
 const tempQuaternionC = new THREE.Quaternion();
@@ -39,63 +41,97 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function findBone(root, names) {
-  const wanted = names.map(name => String(name).toLowerCase());
-  let found = null;
+function collectBones(root) {
+  const bones = [];
   root.traverse(object => {
-    if (!object.isBone || found) return;
-    const key = String(object.name || '').toLowerCase();
-    if (wanted.some(name =>
-      key === name ||
-      key.startsWith(`${name}.`) ||
-      key.startsWith(`${name}_`) ||
-      key.endsWith(`.${name}`)
-    )) {
-      found = object;
-    }
+    if (object.isBone) bones.push(object);
   });
-  return found;
+  return bones;
+}
+
+function normalizeBoneName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/^mixamorig[:_]?/, '')
+    .replace(/\s+/g, '')
+    .replace(/-/g, '_');
+}
+
+function findBoneFromList(bones, names) {
+  const wanted = names.map(normalizeBoneName);
+
+  // Blender가 thigh.L.001 같은 보조 Bone을 함께 내보낼 수 있으므로
+  // 완전 일치 이름을 가장 먼저 찾는다.
+  for (const target of wanted) {
+    const exact = bones.find(bone => normalizeBoneName(bone.name) === target);
+    if (exact) return exact;
+  }
+
+  // 정확한 이름이 없을 때만 숫자 suffix나 exporter prefix가 붙은 Bone을 허용한다.
+  for (const target of wanted) {
+    const close = bones.find(bone => {
+      const key = normalizeBoneName(bone.name);
+      return key.startsWith(`${target}.`) ||
+        key.startsWith(`${target}_`) ||
+        key.endsWith(`.${target}`) ||
+        key.endsWith(`_${target}`);
+    });
+    if (close) return close;
+  }
+
+  return null;
 }
 
 function buildRig(model) {
+  const allBones = collectBones(model);
+  const find = names => findBoneFromList(allBones, names);
+
   const rig = {
-    hips: findBone(model, ['hips']),
-    spine: findBone(model, ['spine']),
-    chest: findBone(model, ['chest']),
-    neck: findBone(model, ['neck']),
-    head: findBone(model, ['head']),
-    shoulderL: findBone(model, ['shoulder.l']),
-    upperArmL: findBone(model, ['upper_arm.l', 'upperarm.l']),
-    forearmL: findBone(model, ['forearm.l']),
-    handL: findBone(model, ['hand.l']),
-    shoulderR: findBone(model, ['shoulder.r']),
-    upperArmR: findBone(model, ['upper_arm.r', 'upperarm.r']),
-    forearmR: findBone(model, ['forearm.r']),
-    handR: findBone(model, ['hand.r']),
-    thighL: findBone(model, ['thigh.l']),
-    shinL: findBone(model, ['shin.l']),
-    footL: findBone(model, ['foot.l']),
-    toeL: findBone(model, ['toe.l']),
-    thighR: findBone(model, ['thigh.r']),
-    shinR: findBone(model, ['shin.r']),
-    footR: findBone(model, ['foot.r']),
-    toeR: findBone(model, ['toe.r']),
+    hips: find(['hips']),
+    spine: find(['spine']),
+    chest: find(['chest', 'spine.001', 'spine1']),
+    neck: find(['neck']),
+    head: find(['head']),
+
+    shoulderL: find(['shoulder.l', 'leftshoulder']),
+    upperArmL: find(['upper_arm.l', 'upperarm.l', 'leftarm']),
+    forearmL: find(['forearm.l', 'leftforearm']),
+    handL: find(['hand.l', 'leftHand']),
+
+    shoulderR: find(['shoulder.r', 'rightshoulder']),
+    upperArmR: find(['upper_arm.r', 'upperarm.r', 'rightarm']),
+    forearmR: find(['forearm.r', 'rightforearm']),
+    handR: find(['hand.r', 'righthand']),
+
+    thighL: find(['thigh.l', 'leftupleg', 'leftleg']),
+    shinL: find(['shin.l', 'leftleg', 'leftlowerleg']),
+    footL: find(['foot.l', 'leftfoot']),
+    toeL: find(['toe.l', 'lefttoe']),
+
+    thighR: find(['thigh.r', 'rightupleg', 'rightleg']),
+    shinR: find(['shin.r', 'rightleg', 'rightlowerleg']),
+    footR: find(['foot.r', 'rightfoot']),
+    toeR: find(['toe.r', 'righttoe']),
   };
 
-  const missing = Object.entries(rig)
-    .filter(([, bone]) => !bone)
-    .map(([name]) => name);
+  const rigMap = Object.fromEntries(
+    Object.entries(rig).map(([key, bone]) => [key, bone?.name ?? null]),
+  );
+  console.info('[Pose Vision] GLB Bone map:', rigMap);
 
-  console.info('[Pose Vision] Rig map:', Object.fromEntries(
-    Object.entries(rig).map(([name, bone]) => [name, bone?.name ?? null]),
-  ));
-  if (missing.length) console.warn('[Pose Vision] Missing optional bones:', missing.join(', '));
+  const missingRequired = REQUIRED_MOTION_BONES.filter(key => !rig[key]);
+  if (missingRequired.length) {
+    console.error('[Pose Vision] Required motion Bone missing:', missingRequired.join(', '));
+    console.info('[Pose Vision] GLB Bone names:', allBones.map(bone => bone.name));
+  }
+
   return rig;
 }
 
 function cacheRigRestPose(rig) {
   Object.values(rig).forEach(bone => {
     if (!bone) return;
+
     bone.updateWorldMatrix(true, false);
     const child = bone.children?.find(item => item.isBone);
     const bonePosition = bone.getWorldPosition(new THREE.Vector3());
@@ -109,38 +145,60 @@ function cacheRigRestPose(rig) {
   });
 }
 
-function hasWorldPoint(point) {
-  return point &&
+function embeddedWorldPoint(pose, index) {
+  const point = pose?.[index];
+  if (!point) return null;
+  if (
     Number.isFinite(point.worldX) &&
     Number.isFinite(point.worldY) &&
-    Number.isFinite(point.worldZ);
+    Number.isFinite(point.worldZ)
+  ) {
+    return { x: point.worldX, y: point.worldY, z: point.worldZ };
+  }
+  return null;
 }
 
-function getPoseDirection(pose, startIndex, endIndex, mirror = false) {
-  const start = pose?.[startIndex];
-  const end = pose?.[endIndex];
-  if (!start || !end) return null;
+function directWorldPoint(worldPose, index) {
+  const point = worldPose?.[index];
+  if (!point) return null;
+  if (
+    Number.isFinite(point.x) &&
+    Number.isFinite(point.y) &&
+    Number.isFinite(point.z)
+  ) return point;
+  return null;
+}
+
+function getWorldPoint(pose, worldPose, index) {
+  return directWorldPoint(worldPose, index) || embeddedWorldPoint(pose, index);
+}
+
+function getPoseDirection(pose, worldPose, startIndex, endIndex, mirror = false) {
+  const worldStart = getWorldPoint(pose, worldPose, startIndex);
+  const worldEnd = getWorldPoint(pose, worldPose, endIndex);
 
   let dx;
   let dy;
   let dz;
 
-  if (hasWorldPoint(start) && hasWorldPoint(end)) {
-    dx = end.worldX - start.worldX;
-    dy = end.worldY - start.worldY;
-    dz = end.worldZ - start.worldZ;
-  } else if (
-    Number.isFinite(start.x) && Number.isFinite(start.y) &&
-    Number.isFinite(end.x) && Number.isFinite(end.y)
-  ) {
+  if (worldStart && worldEnd) {
+    dx = worldEnd.x - worldStart.x;
+    dy = worldEnd.y - worldStart.y;
+    dz = worldEnd.z - worldStart.z;
+  } else {
+    const start = pose?.[startIndex];
+    const end = pose?.[endIndex];
+    if (!start || !end ||
+      !Number.isFinite(start.x) || !Number.isFinite(start.y) ||
+      !Number.isFinite(end.x) || !Number.isFinite(end.y)) return null;
+
     dx = end.x - start.x;
     dy = end.y - start.y;
     dz = (end.z ?? 0) - (start.z ?? 0);
-  } else {
-    return null;
   }
 
-  // MediaPipe 카메라 좌표를 Three.js 월드 좌표로 변환한다.
+  // MediaPipe: +x 오른쪽, +y 아래쪽. Three.js: +y 위쪽.
+  // z도 Three.js 카메라 방향에 맞춰 반전한다.
   const direction = new THREE.Vector3(
     (mirror ? -1 : 1) * dx,
     -dy,
@@ -167,13 +225,21 @@ function averageNormalized(points) {
   };
 }
 
+function averageWorldZ(pose, worldPose, indices) {
+  const points = indices
+    .map(index => getWorldPoint(pose, worldPose, index))
+    .filter(Boolean);
+  if (!points.length) return null;
+  return points.reduce((sum, point) => sum + point.z, 0) / points.length;
+}
+
 function setBoneDirection3D(bone, targetDirection, influence = 0.42) {
   if (!bone || !targetDirection) return;
+
   const restDirection = bone.userData.poseVisionRestWorldDirection;
   const restWorldQuaternion = bone.userData.poseVisionRestWorldQuaternion;
   if (!restDirection || !restWorldQuaternion) return;
 
-  // 원래 뼈가 향하던 월드 방향을 현재 MediaPipe 관절 방향으로 회전시킨다.
   tempQuaternionA.setFromUnitVectors(restDirection, targetDirection);
   tempQuaternionB.copy(tempQuaternionA).multiply(restWorldQuaternion);
 
@@ -184,6 +250,7 @@ function setBoneDirection3D(bone, targetDirection, influence = 0.42) {
   } else {
     bone.quaternion.slerp(tempQuaternionB, influence);
   }
+
   bone.updateMatrixWorld(true);
 }
 
@@ -230,6 +297,8 @@ function buildEnvironment(style) {
   let floorRoughness = 0.42;
   let gridPrimary = 0x55f4df;
   let gridSecondary = 0x2a5572;
+  let fogNear = 7;
+  let fogFar = 20;
 
   if (style === 'space-station') {
     backgroundColor = '#030711';
@@ -238,6 +307,8 @@ function buildEnvironment(style) {
     floorRoughness = 0.24;
     gridPrimary = 0x7ca8ff;
     gridSecondary = 0x32415e;
+    fogNear = 8;
+    fogFar = 24;
     addBackdrop(group, '#030711');
     const ringMaterial = makeMaterial('#6e7b8e', 0.3, 0.8, '#8fb6ff', 0.35);
     const ring = new THREE.Mesh(new THREE.TorusGeometry(2.7, 0.08, 12, 80), ringMaterial);
@@ -251,6 +322,8 @@ function buildEnvironment(style) {
     floorRoughness = 0.72;
     gridPrimary = 0x7ab7c9;
     gridSecondary = 0xa8c2ca;
+    fogNear = 9;
+    fogFar = 25;
     addBackdrop(group, '#aebfc8');
     const panel = makeMaterial('#e8f0f3', 0.58, 0.1);
     const glow = makeMaterial('#75d9e8', 0.35, 0.2, '#75d9e8', 0.65);
@@ -265,6 +338,8 @@ function buildEnvironment(style) {
     floorRoughness = 0.12;
     gridPrimary = 0xff4fd8;
     gridSecondary = 0x4b2b68;
+    fogNear = 5.5;
+    fogFar = 16;
     addBackdrop(group, '#090713');
     const building = makeMaterial('#111522', 0.72, 0.22);
     const magenta = makeMaterial('#27142b', 0.38, 0.2, '#ff42d0', 1.4);
@@ -274,13 +349,14 @@ function buildEnvironment(style) {
       addBox(group, [x > 0 ? x - 0.55 : x + 0.55, 2.4, -3.05], [0.12, 1.5, 0.08], index % 2 ? magenta : cyan);
     });
   } else {
-    // neon-future-city
     backgroundColor = '#050914';
     floorColor = '#0b1324';
     floorMetalness = 0.48;
     floorRoughness = 0.32;
     gridPrimary = 0x4df4dc;
     gridSecondary = 0x264a73;
+    fogNear = 6.5;
+    fogFar = 19;
     addBackdrop(group, '#050914');
     const building = makeMaterial('#10172b', 0.72, 0.25);
     const cyan = makeMaterial('#133037', 0.34, 0.25, '#42f5dc', 1.1);
@@ -297,21 +373,36 @@ function buildEnvironment(style) {
     new THREE.PlaneGeometry(30, 30),
     makeMaterial(floorColor, floorRoughness, floorMetalness),
   );
+  floor.name = 'PoseVisionFloor';
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -0.012;
   floor.receiveShadow = true;
   group.add(floor);
 
+  // 바닥 위에 투명한 shadow catcher를 한 겹 두어 발밑 접지감을 강화한다.
+  const shadowCatcher = new THREE.Mesh(
+    new THREE.PlaneGeometry(12, 12),
+    new THREE.ShadowMaterial({
+      color: 0x000000,
+      opacity: style === 'laboratory' ? 0.18 : 0.36,
+    }),
+  );
+  shadowCatcher.name = 'PoseVisionShadowCatcher';
+  shadowCatcher.rotation.x = -Math.PI / 2;
+  shadowCatcher.position.y = 0.002;
+  shadowCatcher.receiveShadow = true;
+  group.add(shadowCatcher);
+
   const grid = new THREE.GridHelper(30, 30, gridPrimary, gridSecondary);
-  grid.position.y = 0.006;
+  grid.position.y = 0.008;
   const gridMaterials = Array.isArray(grid.material) ? grid.material : [grid.material];
   gridMaterials.forEach(material => {
     material.transparent = true;
-    material.opacity = style === 'laboratory' ? 0.25 : 0.48;
+    material.opacity = style === 'laboratory' ? 0.22 : 0.44;
   });
   group.add(grid);
 
-  return { group, backgroundColor };
+  return { group, backgroundColor, fogNear, fogFar };
 }
 
 export function create2DAvatar(container, initialOptions = {}, runtimeOptions = {}) {
@@ -354,6 +445,9 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
   key.shadow.camera.right = 4;
   key.shadow.camera.top = 6;
   key.shadow.camera.bottom = -2;
+  key.shadow.bias = -0.0006;
+  key.shadow.normalBias = 0.02;
+
   const rim = new THREE.DirectionalLight(0x72f2df, 1.4);
   rim.position.set(-4, 3, -3);
   scene.add(hemi, key, rim);
@@ -380,10 +474,12 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
         else object.material?.dispose?.();
       });
     }
+
     environment = buildEnvironment(options.backgroundStyle);
     currentBackgroundStyle = options.backgroundStyle;
     scene.add(environment.group);
     scene.background = new THREE.Color(environment.backgroundColor);
+    scene.fog = new THREE.Fog(environment.backgroundColor, environment.fogNear, environment.fogFar);
   }
 
   function resize() {
@@ -397,9 +493,10 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
 
   function makePoseTargets(result) {
     const pose = result?.poseLandmarks || result?.landmarks?.[0] || null;
+    const worldPose = result?.poseWorldLandmarks || result?.worldLandmarks?.[0] || null;
     if (!pose?.length) return null;
-    const mirror = Boolean(result?.mapping?.mirror);
 
+    const mirror = Boolean(result?.mapping?.mirror);
     const shoulderCenter = averageNormalized([
       getNormalizedPoint(pose, 11),
       getNormalizedPoint(pose, 12),
@@ -416,36 +513,32 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
       const dy = hipCenter.y - shoulderCenter.y;
       bodyTilt = clamp(Math.atan2((mirror ? -1 : 1) * dx, Math.max(0.05, dy)), -0.5, 0.5);
 
-      const shoulderWorldZ = [pose[11], pose[12]]
-        .filter(hasWorldPoint)
-        .reduce((sum, point) => sum + point.worldZ, 0) /
-        Math.max(1, [pose[11], pose[12]].filter(hasWorldPoint).length);
-      const hipWorldZ = [pose[23], pose[24]]
-        .filter(hasWorldPoint)
-        .reduce((sum, point) => sum + point.worldZ, 0) /
-        Math.max(1, [pose[23], pose[24]].filter(hasWorldPoint).length);
-      depthLean = clamp((shoulderWorldZ - hipWorldZ) * 0.9, -0.28, 0.28);
+      const shoulderWorldZ = averageWorldZ(pose, worldPose, [11, 12]);
+      const hipWorldZ = averageWorldZ(pose, worldPose, [23, 24]);
+      if (shoulderWorldZ != null && hipWorldZ != null) {
+        depthLean = clamp((shoulderWorldZ - hipWorldZ) * 0.9, -0.28, 0.28);
+      }
     }
 
     return {
-      pose,
       mirror,
       bodyTilt,
       depthLean,
-      rootX: hipCenter ? clamp(((mirror ? 0.5 - hipCenter.x : hipCenter.x - 0.5) * 1.15), -0.7, 0.7) : 0,
-      upperArmL: getPoseDirection(pose, 11, 13, mirror),
-      forearmL: getPoseDirection(pose, 13, 15, mirror),
-      handL: getPoseDirection(pose, 15, 19, mirror),
-      upperArmR: getPoseDirection(pose, 12, 14, mirror),
-      forearmR: getPoseDirection(pose, 14, 16, mirror),
-      handR: getPoseDirection(pose, 16, 20, mirror),
-      thighL: getPoseDirection(pose, 23, 25, mirror),
-      shinL: getPoseDirection(pose, 25, 27, mirror),
-      footL: getPoseDirection(pose, 27, 31, mirror),
-      thighR: getPoseDirection(pose, 24, 26, mirror),
-      shinR: getPoseDirection(pose, 26, 28, mirror),
-      footR: getPoseDirection(pose, 28, 32, mirror),
-      neck: getPoseDirection(pose, 11, 0, mirror),
+      rootX: hipCenter
+        ? clamp(((mirror ? 0.5 - hipCenter.x : hipCenter.x - 0.5) * 1.15), -0.7, 0.7)
+        : 0,
+      upperArmL: getPoseDirection(pose, worldPose, 11, 13, mirror),
+      forearmL: getPoseDirection(pose, worldPose, 13, 15, mirror),
+      handL: getPoseDirection(pose, worldPose, 15, 19, mirror),
+      upperArmR: getPoseDirection(pose, worldPose, 12, 14, mirror),
+      forearmR: getPoseDirection(pose, worldPose, 14, 16, mirror),
+      handR: getPoseDirection(pose, worldPose, 16, 20, mirror),
+      thighL: getPoseDirection(pose, worldPose, 23, 25, mirror),
+      shinL: getPoseDirection(pose, worldPose, 25, 27, mirror),
+      footL: getPoseDirection(pose, worldPose, 27, 31, mirror),
+      thighR: getPoseDirection(pose, worldPose, 24, 26, mirror),
+      shinR: getPoseDirection(pose, worldPose, 26, 28, mirror),
+      footR: getPoseDirection(pose, worldPose, 28, 32, mirror),
     };
   }
 
@@ -466,7 +559,6 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     setBoneDirection3D(rig.shinR, targets.shinR, 0.44);
     setBoneDirection3D(rig.footR, targets.footR, 0.32);
 
-    // 추적이 불완전한 관절은 갑자기 0도로 튀지 않고 천천히 기본 자세로 복귀한다.
     if (!targets.upperArmL) restoreBoneTowardRest(rig.upperArmL);
     if (!targets.forearmL) restoreBoneTowardRest(rig.forearmL);
     if (!targets.upperArmR) restoreBoneTowardRest(rig.upperArmR);
@@ -485,12 +577,10 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     frameId = null;
     if (disposed) return;
 
-    if (loaded && poseTargets) {
-      updateRigFromPose(poseTargets);
-    }
+    if (loaded && poseTargets) updateRigFromPose(poseTargets);
 
-    // GLB 내부 애니메이션은 재생하지 않는다. 재생하면 MediaPipe가 쓴 Bone 회전을
-    // AnimationMixer가 다음 프레임에 다시 덮어쓸 수 있다.
+    // 의도적으로 AnimationMixer를 만들지 않는다.
+    // GLB 내부 clip을 재생하면 MediaPipe가 적용한 Bone quaternion이 다음 프레임에 덮어써질 수 있다.
     renderer.render(scene, camera);
     frameId = requestAnimationFrame(renderFrame);
   }
@@ -501,8 +591,9 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
       if (disposed) return;
 
       model = gltf.scene;
-      const ground = model.getObjectByName('Plane') || model.getObjectByName('plane');
-      ground?.parent?.remove(ground);
+
+      const includedGround = model.getObjectByName('Plane') || model.getObjectByName('plane');
+      includedGround?.parent?.remove(includedGround);
 
       model.traverse(object => {
         if (!object.isMesh) return;
@@ -538,10 +629,16 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
       model.updateMatrixWorld(true);
       cacheRigRestPose(rig);
 
-      // 실제로 스킨된 리깅 모델인지 개발자 콘솔에서 즉시 확인할 수 있다.
       let skinnedMeshCount = 0;
-      model.traverse(object => { if (object.isSkinnedMesh) skinnedMeshCount += 1; });
-      console.info(`[Pose Vision] GLB loaded: ${skinnedMeshCount} skinned mesh(es), ${gltf.animations?.length ?? 0} animation clip(s)`);
+      model.traverse(object => {
+        if (object.isSkinnedMesh) skinnedMeshCount += 1;
+      });
+
+      const animationCount = gltf.animations?.length ?? 0;
+      console.info(`[Pose Vision] GLB loaded: ${skinnedMeshCount} skinned mesh(es), ${animationCount} animation clip(s)`);
+      if (animationCount > 0) {
+        console.info('[Pose Vision] Embedded GLB animations are intentionally ignored during live tracking.');
+      }
 
       loaded = true;
       if (latestPoseInput) poseTargets = makePoseTargets(latestPoseInput);
@@ -552,7 +649,6 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
   }
 
   function applyPose(result) {
-    // 모델 로딩 전에 들어온 포즈도 버리지 않고 기억했다가 로딩 직후 적용한다.
     latestPoseInput = result;
     if (!loaded) return;
     const nextTargets = makePoseTargets(result);
