@@ -22,11 +22,11 @@ node server.cjs
 
 - `main.html`, `main.css`, `main.js`: 화면과 실시간 합성
 - `poseLandmarker.js`, `ui.js`: 포즈·표정 인식과 스켈레톤
-- `avatar2d.js`: 캔버스 기반 2D 아바타
-- `avatarOptions.js`: 옵션 목록, 이미지 경로와 세분화 파츠 매니페스트
+- `avatarObj.js`: GLB 리깅 아바타 로드 및 포즈 본 연결
+- `avatarOptions.js`: GLB 아바타 옵션 목록과 스타일 매핑
 - `server.cjs`: 정적 서버, Gemini 및 Google 설정 API
-- `GEMINI_API_SETUP.md`, `GOOGLE_DRIVE_SETUP.md`: API 연결 방법
+- `GOOGLE_DRIVE_SETUP.md`: Google Drive 연결 방법
 
-옵션 이미지와 파츠 제작 규격은 `AVATAR_ASSET_GUIDE.md`를 참고하세요. Gemini 분석 API는 이후 옵션 이미지 학습 및 아바타 생성에 연결할 수 있도록 서버에 유지했습니다.
+아바타는 같은 폴더의 `final low poly character  rigged.glb`를 사용합니다. Gemini 분석 API는 선택 기능으로 서버에 유지되어 있습니다.
 npm install -g @google/gemini-cli
 gemini

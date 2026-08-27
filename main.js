@@ -1,17 +1,14 @@
 import { closeLandmarkers, initPoseLandmarker, getPoseData } from './poseLandmarker.js';
 import { drawSkeleton, resetSkeletonState } from './ui.js';
-import { create2DAvatar, DEFAULT_AVATAR_OPTIONS } from './avatar2d.js';
+import { create2DAvatar, DEFAULT_AVATAR_OPTIONS } from './avatarObj.js';
 import {
   OPTION_GROUPS,
-  buildAvatarAssetManifest,
   normalizeSelection,
-  optionReferencePath,
   selectionToAppearance,
 } from './avatarOptions.js';
 
 const optionSetup = document.getElementById('optionSetup');
 const optionPreview = document.getElementById('optionAvatarPreview');
-const optionReferenceImage = document.getElementById('optionReferenceImage');
 const optionReferenceCaption = document.getElementById('optionReferenceCaption');
 const completeOptionsButton = document.getElementById('completeOptionsButton');
 const setupStatus = document.getElementById('setupStatus');
@@ -96,20 +93,8 @@ function selectedLabel(group, value) {
 }
 
 function showOptionReference(group) {
-  const path = optionReferencePath(group, currentSelection[group], currentSelection);
   const label = selectedLabel(group, currentSelection[group]);
-  optionReferenceImage.hidden = true;
-  optionReferenceImage.dataset.requested = path;
-  optionReferenceCaption.textContent = `${OPTION_LABELS[group]} · ${label}`;
-  optionReferenceImage.onload = () => {
-    if (optionReferenceImage.dataset.requested === path) optionReferenceImage.hidden = false;
-  };
-  optionReferenceImage.onerror = () => {
-    if (optionReferenceImage.dataset.requested !== path) return;
-    optionReferenceImage.hidden = true;
-    optionReferenceCaption.textContent = `${OPTION_LABELS[group]} · ${label} (2D 미리보기)`;
-  };
-  optionReferenceImage.src = path;
+  optionReferenceCaption.textContent = `${OPTION_LABELS[group]} · ${label} · GLB 캐릭터`;
 }
 
 function applyOptionSelection(changedGroup = 'theme') {
@@ -117,7 +102,6 @@ function applyOptionSelection(changedGroup = 'theme') {
     Object.entries(optionSelects).map(([key, select]) => [key, select.value]),
   ));
   localStorage.setItem('poseVisionAvatarSelection', JSON.stringify(currentSelection));
-  localStorage.setItem('poseVisionAvatarAssetManifest', JSON.stringify(buildAvatarAssetManifest(currentSelection)));
   previewAvatar?.updateAppearance(selectionToAppearance(currentSelection));
   showOptionReference(changedGroup);
 }

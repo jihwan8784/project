@@ -54,16 +54,6 @@ export const DEFAULT_SELECTION = Object.freeze({
   theme: 'cyberpunk',
 });
 
-export const AVATAR_PART_NAMES = Object.freeze([
-  'hair-back', 'head', 'face', 'hair-front', 'neck',
-  'torso-base', 'chest-overlay', 'waist', 'pelvis',
-  'left-shoulder', 'left-upper-arm', 'left-elbow', 'left-forearm', 'left-wrist', 'left-hand',
-  'right-shoulder', 'right-upper-arm', 'right-elbow', 'right-forearm', 'right-wrist', 'right-hand',
-  'left-thigh', 'left-knee', 'left-calf', 'left-ankle', 'left-foot',
-  'right-thigh', 'right-knee', 'right-calf', 'right-ankle', 'right-foot',
-  'occupation-gear', 'theme-overlay',
-]);
-
 const THEME_STYLES = {
   cyberpunk: {
     topColor: '#27305f', bottomColor: '#151a34', accentColor: '#37f2dc', shoeColor: '#dce8ff',
@@ -112,37 +102,5 @@ export function selectionToAppearance(selectionValue) {
     accessoryStyle: selection.occupation === 'drone-pilot'
       ? 'headphones'
       : selection.occupation === 'teacher' ? 'glasses' : 'none',
-    assetManifest: buildAvatarAssetManifest(selection),
-  };
-}
-
-export function optionReferencePath(group, value, selectionValue) {
-  const selection = normalizeSelection(selectionValue);
-  if (group === 'body') return `assets/options/body/${selection.gender}-${value}.webp`;
-  return `assets/options/${group}/${value}.webp`;
-}
-
-export function buildAvatarAssetManifest(selectionValue) {
-  const selection = normalizeSelection(selectionValue);
-  const root = `assets/avatar-parts/${selection.gender}/${selection.age}/${selection.body}`;
-  const outfitRoot = `assets/avatar-parts/outfits/${selection.occupation}/${selection.theme}`;
-  return {
-    version: 1,
-    selection,
-    referenceImages: {
-      gender: optionReferencePath('gender', selection.gender, selection),
-      age: optionReferencePath('age', selection.age, selection),
-      body: optionReferencePath('body', selection.body, selection),
-      occupation: optionReferencePath('occupation', selection.occupation, selection),
-      background: optionReferencePath('background', selection.background, selection),
-      theme: optionReferencePath('theme', selection.theme, selection),
-    },
-    background: `assets/backgrounds/${selection.background}.webp`,
-    parts: Object.fromEntries(AVATAR_PART_NAMES.map(part => [
-      part,
-      part === 'occupation-gear' || part === 'theme-overlay'
-        ? `${outfitRoot}/${part}.png`
-        : `${root}/${part}.png`,
-    ])),
   };
 }
