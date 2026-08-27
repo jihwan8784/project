@@ -28,3 +28,5 @@ node server.cjs
 - `GEMINI_API_SETUP.md`, `GOOGLE_DRIVE_SETUP.md`: API 연결 방법
 
 옵션 이미지와 파츠 제작 규격은 `AVATAR_ASSET_GUIDE.md`를 참고하세요. Gemini 분석 API는 이후 옵션 이미지 학습 및 아바타 생성에 연결할 수 있도록 서버에 유지했습니다.
+npm install -g @google/gemini-cli
+gemini
