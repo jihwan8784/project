@@ -310,7 +310,6 @@ async function startTracking() {
     webcamVideo.srcObject = cameraStream;
     await webcamVideo.play();
     syncCanvasSize();
-    if (!await initPoseLandmarker()) throw new Error('Pose Lite 모델을 불러오지 못했습니다.');
 
     previewAvatar?.dispose();
     previewAvatar = null;
@@ -324,6 +323,14 @@ async function startTracking() {
     landmarkSeenAt = new Array(33).fill(0);
     tracking = true;
     scheduleNextFrame();
+
+    // The camera/avatar stage should not be blocked by a slow or unavailable
+    // landmark model. Tracking can start in a waiting state and recover when
+    // the model is ready.
+    const poseReady = await initPoseLandmarker();
+    detectionStatus.textContent = poseReady
+      ? 'Pose Lite · 실시간 아바타 추적 준비 완료'
+      : '카메라 연결됨 · Pose Lite를 준비하지 못했습니다.';
   } catch (error) {
     console.error('Camera start failed.', error);
     cameraStream?.getTracks().forEach(track => track.stop());

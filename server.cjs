@@ -36,6 +36,7 @@ const MIME = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.svg': 'image/svg+xml',
+  '.glb': 'model/gltf-binary',
 };
 
 const COLOR_KEYS = [
@@ -375,6 +376,17 @@ const server = http.createServer(async (req, res) => {
     if ([500, 502, 504].includes(status)) console.error(error);
     sendJson(res, status, { error: status === 500 ? '서버 오류가 발생했습니다.' : error.message });
   }
+});
+
+server.on('error', error => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`포트 ${PORT}는 이미 사용 중입니다. 기존 Pose Vision 서버가 실행 중이면 http://127.0.0.1:${PORT}/main.html 을 열어주세요.`);
+    console.error(`다른 포트를 사용하려면 PowerShell에서 $env:PORT=8001; node server.cjs 를 실행하세요.`);
+    process.exitCode = 1;
+    return;
+  }
+  console.error('서버를 시작하지 못했습니다.', error);
+  process.exitCode = 1;
 });
 
 server.listen(PORT, '127.0.0.1', () => {
