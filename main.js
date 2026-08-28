@@ -2,6 +2,7 @@ import { closeLandmarkers, initPoseLandmarker, getPoseData } from './poseLandmar
 import { drawSkeleton, resetSkeletonState } from './ui.js';
 import { create2DAvatar, DEFAULT_AVATAR_OPTIONS } from './avatarObj.js';
 import {
+  DEFAULT_SELECTION,
   OPTION_GROUPS,
   normalizeSelection,
   selectionToAppearance,
@@ -33,14 +34,25 @@ const confidenceValue = document.getElementById('confidenceValue');
 const showSkeletonCheckbox = document.getElementById('showSkeletonCheckbox');
 const mirrorCameraCheckbox = document.getElementById('mirrorCameraCheckbox');
 const captureStatus = document.getElementById('captureStatus');
+const randomizeOptionsButton = document.getElementById('randomizeOptionsButton');
+const resetOptionsButton = document.getElementById('resetOptionsButton');
 const optionSelects = {
   gender: document.getElementById('genderSelect'),
   age: document.getElementById('ageSelect'),
   body: document.getElementById('bodySelect'),
+  faceShape: document.getElementById('faceShapeSelect'),
   occupation: document.getElementById('occupationSelect'),
   background: document.getElementById('backgroundSelect'),
   theme: document.getElementById('themeSelect'),
   hairStyle: document.getElementById('hairStyleSelect'),
+  accessory: document.getElementById('accessorySelect'),
+};
+const colorPalettes = {
+  skinColor: document.getElementById('skinColorPalette'),
+  hairColor: document.getElementById('hairColorPalette'),
+  eyeColor: document.getElementById('eyeColorPalette'),
+  outfitColor: document.getElementById('outfitColorPalette'),
+  accentColor: document.getElementById('accentColorPalette'),
 };
 
 const CORE_LANDMARKS = [11, 12, 23, 24];
@@ -67,7 +79,9 @@ let googleIdentityPromise = null;
 let currentSelection = readStoredSelection();
 
 const OPTION_LABELS = {
-  gender: '성별', age: '연령대', body: '체형', occupation: '직업군', background: '배경', theme: '테마', hairStyle: '헤어스타일',
+  gender: '성별', age: '연령대', body: '체형', faceShape: '얼굴형', occupation: '직업 의상',
+  background: '배경', theme: '테마', hairStyle: '헤어스타일', accessory: '액세서리',
+  skinColor: '피부색', hairColor: '헤어 컬러', eyeColor: '눈동자', outfitColor: '의상 컬러', accentColor: '포인트 컬러',
 };
 
 function readStoredSelection() {
@@ -95,28 +109,66 @@ function selectedLabel(group, value) {
   return options.find(option => option.value === value)?.label || value;
 }
 
+function fillPalette(group) {
+  const palette = colorPalettes[group];
+  palette.replaceChildren(...OPTION_GROUPS[group].map(option => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'color-swatch';
+    button.dataset.value = option.value;
+    button.style.setProperty('--swatch-color', option.value);
+    button.title = option.label;
+    button.setAttribute('aria-label', option.label);
+    button.setAttribute('aria-pressed', String(option.value === currentSelection[group]));
+    button.classList.toggle('is-selected', option.value === currentSelection[group]);
+    button.addEventListener('click', () => {
+      currentSelection[group] = option.value;
+      syncPaletteSelection(group);
+      applyOptionSelection(group);
+    });
+    return button;
+  }));
+}
+
+function syncPaletteSelection(group) {
+  colorPalettes[group].querySelectorAll('.color-swatch').forEach(button => {
+    const selected = button.dataset.value === currentSelection[group];
+    button.classList.toggle('is-selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  });
+}
+
 function showOptionReference(group) {
   const label = selectedLabel(group, currentSelection[group]);
   optionReferenceCaption.textContent = `${OPTION_LABELS[group]} · ${label} · GLB 캐릭터`;
 }
 
 function applyOptionSelection(changedGroup = 'theme') {
-  currentSelection = normalizeSelection(Object.fromEntries(
-    Object.entries(optionSelects).map(([key, select]) => [key, select.value]),
-  ));
+  currentSelection = normalizeSelection({
+    ...currentSelection,
+    ...Object.fromEntries(Object.entries(optionSelects).map(([key, select]) => [key, select.value])),
+  });
   localStorage.setItem('poseVisionAvatarSelection', JSON.stringify(currentSelection));
   previewAvatar?.updateAppearance(selectionToAppearance(currentSelection));
   showOptionReference(changedGroup);
 }
 
-function initializeOptionControls() {
+function syncControlsFromSelection() {
   fillSelect(optionSelects.gender, OPTION_GROUPS.gender, currentSelection.gender);
   fillSelect(optionSelects.age, OPTION_GROUPS.age, currentSelection.age);
   fillSelect(optionSelects.body, OPTION_GROUPS.bodyByGender[currentSelection.gender], currentSelection.body);
+  fillSelect(optionSelects.faceShape, OPTION_GROUPS.faceShape, currentSelection.faceShape);
   fillSelect(optionSelects.occupation, OPTION_GROUPS.occupation, currentSelection.occupation);
   fillSelect(optionSelects.background, OPTION_GROUPS.background, currentSelection.background);
   fillSelect(optionSelects.theme, OPTION_GROUPS.theme, currentSelection.theme);
   fillSelect(optionSelects.hairStyle, OPTION_GROUPS.hairStyle, currentSelection.hairStyle);
+  fillSelect(optionSelects.accessory, OPTION_GROUPS.accessory, currentSelection.accessory);
+  Object.keys(colorPalettes).forEach(syncPaletteSelection);
+}
+
+function initializeOptionControls() {
+  Object.keys(colorPalettes).forEach(fillPalette);
+  syncControlsFromSelection();
 
   Object.entries(optionSelects).forEach(([group, select]) => {
     select.addEventListener('change', () => {
@@ -131,6 +183,27 @@ function initializeOptionControls() {
       applyOptionSelection(group);
     });
   });
+}
+
+function randomOption(group) {
+  const options = group === 'body' ? OPTION_GROUPS.bodyByGender[currentSelection.gender] : OPTION_GROUPS[group];
+  return options[Math.floor(Math.random() * options.length)].value;
+}
+
+function randomizeOptions() {
+  currentSelection.gender = randomOption('gender');
+  ['age', 'body', 'faceShape', 'occupation', 'background', 'theme', 'hairStyle', 'accessory',
+    'skinColor', 'hairColor', 'eyeColor', 'outfitColor', 'accentColor']
+    .forEach(group => { currentSelection[group] = randomOption(group); });
+  currentSelection = normalizeSelection(currentSelection);
+  syncControlsFromSelection();
+  applyOptionSelection('hairStyle');
+}
+
+function resetOptions() {
+  currentSelection = normalizeSelection(DEFAULT_SELECTION);
+  syncControlsFromSelection();
+  applyOptionSelection('theme');
 }
 
 function readStoredAvatarOptions() {
@@ -625,6 +698,8 @@ async function uploadCaptureToDrive() {
 }
 
 completeOptionsButton.addEventListener('click', startTracking);
+randomizeOptionsButton.addEventListener('click', randomizeOptions);
+resetOptionsButton.addEventListener('click', resetOptions);
 captureButton.addEventListener('click', captureComposite);
 driveConnectButton.addEventListener('click', connectGoogleDrive);
 driveSaveButton.addEventListener('click', uploadCaptureToDrive);

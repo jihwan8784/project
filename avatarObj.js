@@ -16,9 +16,9 @@ export const DEFAULT_AVATAR_OPTIONS = Object.freeze({
   backgroundStyle: 'neon-future-city',
   theme: 'cyberpunk',
   faceShape: 'oval',
-  hairStyle: 'wave',
+  hairStyle: 'short',
   outfitStyle: 'idol',
-  accessoryStyle: 'ribbon',
+  accessoryStyle: 'none',
   heightScale: 1,
   shoulderScale: 1,
   headScale: 1.08,
@@ -283,6 +283,9 @@ function buildPartAvatar(options) {
   const hair = makeAvatarMaterial(options.hairColor, options);
   const bodyWidth = options.bodyVariant === 'slim' ? 0.68 : options.bodyVariant === 'muscular' ? 0.92 : options.bodyVariant === 'volume' ? 0.88 : 0.79;
   const limbRadius = options.bodyVariant === 'slim' ? 0.105 : options.bodyVariant === 'muscular' ? 0.15 : 0.125;
+  const isFemale = options.gender === 'female';
+  const shoulderWidth = bodyWidth * (isFemale ? 0.52 : 0.60);
+  const hipWidth = bodyWidth * (isFemale ? 0.31 : 0.24);
 
   // Face and torso are independent parts. Their positions are skeleton anchors.
   const torsoAnchor = new THREE.Group();
@@ -290,7 +293,7 @@ function buildPartAvatar(options) {
   torsoAnchor.position.set(0, 1.05, 0);
   avatar.add(torsoAnchor);
   const torso = makePart(new THREE.CapsuleGeometry(bodyWidth / 2, 0.72, 10, 20), clothing, 'torso');
-  torso.scale.z = 0.68;
+  torso.scale.set(isFemale ? 0.94 : 1, 1, 0.68);
   torsoAnchor.add(torso);
   const neck = new THREE.Group();
   neck.position.y = 0.72;
@@ -300,28 +303,69 @@ function buildPartAvatar(options) {
   faceAnchor.position.y = 0.22;
   neck.add(faceAnchor);
   const face = makePart(new THREE.SphereGeometry(0.34 * Number(options.headScale || 1), 18, 14), skin, 'face');
-  face.scale.z = 0.84;
+  const faceScale = options.faceShape === 'round'
+    ? [1.04, 1.02, 0.88]
+    : options.faceShape === 'angular' ? [0.98, 1.08, 0.82] : [1, 1.12, 0.84];
+  face.scale.set(...faceScale);
   faceAnchor.add(face);
   const hairCap = makePart(new THREE.SphereGeometry(0.35 * Number(options.headScale || 1), 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), hair, 'hair');
-  hairCap.scale.z = 0.87;
+  hairCap.scale.set(faceScale[0] * 1.02, faceScale[1], 0.87);
   hairCap.position.y = 0.08;
   faceAnchor.add(hairCap);
-  if (options.hairStyle === 'long') {
-    // Rounded strands show the length while leaving the face unobstructed.
-    const addLongHairStrand = (name, x, y, z, radius, length) => {
-      const strand = makePart(new THREE.CapsuleGeometry(radius, length, 8, 16), hair, name);
-      strand.position.set(x, y, z);
-      faceAnchor.add(strand);
-    };
-    addLongHairStrand('longHairBack', 0, -0.22, -0.18, 0.22, 0.34);
-    addLongHairStrand('longHairLeft', -0.28, -0.22, 0.01, 0.09, 0.32);
-    addLongHairStrand('longHairRight', 0.28, -0.22, 0.01, 0.09, 0.32);
+  const addHairStrand = (name, x, y, z, radius, length) => {
+    const strand = makePart(new THREE.CapsuleGeometry(radius, length, 8, 16), hair, name);
+    strand.position.set(x, y, z);
+    faceAnchor.add(strand);
+    return strand;
+  };
+  if (options.hairStyle === 'bob') {
+    addHairStrand('bobLeft', -0.29, -0.12, -0.01, 0.12, 0.20);
+    addHairStrand('bobRight', 0.29, -0.12, -0.01, 0.12, 0.20);
+    addHairStrand('bobBack', 0, -0.13, -0.20, 0.24, 0.18);
+  } else if (options.hairStyle === 'long') {
+    addHairStrand('longHairBack', 0, -0.28, -0.18, 0.23, 0.46);
+    addHairStrand('longHairLeft', -0.28, -0.28, 0.01, 0.09, 0.43);
+    addHairStrand('longHairRight', 0.28, -0.28, 0.01, 0.09, 0.43);
+  } else if (options.hairStyle === 'ponytail') {
+    const tie = makePart(new THREE.SphereGeometry(0.09, 10, 8), accent, 'ponytailTie');
+    tie.position.set(0, 0.08, -0.34);
+    faceAnchor.add(tie);
+    const ponytail = addHairStrand('ponytail', 0, -0.22, -0.39, 0.13, 0.48);
+    ponytail.rotation.x = -0.18;
+  } else if (options.hairStyle === 'spiky') {
+    [-0.24, -0.12, 0, 0.12, 0.24].forEach((x, index) => {
+      const spike = makePart(new THREE.ConeGeometry(0.09, 0.3, 8), hair, `hairSpike${index}`);
+      spike.position.set(x, 0.35 - Math.abs(x) * 0.25, -0.02);
+      spike.rotation.z = -x * 1.6;
+      faceAnchor.add(spike);
+    });
+  } else {
+    [-0.18, 0, 0.18].forEach((x, index) => {
+      const fringe = makePart(new THREE.SphereGeometry(0.105, 10, 7), hair, `shortFringe${index}`);
+      fringe.scale.set(1, 1.25, 0.48);
+      fringe.position.set(x, 0.18 - Math.abs(x) * 0.18, 0.25);
+      faceAnchor.add(fringe);
+    });
   }
+  const eyeMaterial = makeAvatarMaterial(options.eyeColor, options);
   [-0.12, 0.12].forEach(x => {
-    const eye = makePart(new THREE.SphereGeometry(0.032, 8, 6), makeAvatarMaterial(options.eyeColor, options), 'eye');
+    const eye = makePart(new THREE.SphereGeometry(0.035, 10, 8), eyeMaterial, 'eye');
     eye.position.set(x, 0.015, 0.292);
     faceAnchor.add(eye);
   });
+  const mouth = makePart(new THREE.CapsuleGeometry(0.012, 0.075, 4, 8), makeAvatarMaterial('#7d3d45', options), 'mouth');
+  mouth.rotation.z = Math.PI / 2;
+  mouth.position.set(0, -0.125, 0.292);
+  faceAnchor.add(mouth);
+  if (options.ageGroup === '40-50') {
+    const ageLineMaterial = makeAvatarMaterial('#a86f58', options);
+    [-0.17, 0.17].forEach((x, index) => {
+      const line = makePart(new THREE.BoxGeometry(0.07, 0.009, 0.008), ageLineMaterial, `ageLine${index}`);
+      line.position.set(x, -0.07, 0.304);
+      line.rotation.z = x < 0 ? -0.18 : 0.18;
+      faceAnchor.add(line);
+    });
+  }
 
   const rig = { torso: torsoAnchor, face: faceAnchor };
   const addArm = (side, x) => {
@@ -339,8 +383,8 @@ function buildPartAvatar(options) {
     rig[`${side}UpperArm`] = upper.anchor;
     rig[`${side}Forearm`] = lower.anchor;
   };
-  addArm('left', -bodyWidth * 0.58);
-  addArm('right', bodyWidth * 0.58);
+  addArm('left', -shoulderWidth);
+  addArm('right', shoulderWidth);
 
   const addLeg = (side, x) => {
     const hip = new THREE.Group();
@@ -365,24 +409,127 @@ function buildPartAvatar(options) {
     rig[`${side}Thigh`] = thigh.anchor;
     rig[`${side}Shin`] = shin.anchor;
   };
-  addLeg('left', -bodyWidth * 0.24);
-  addLeg('right', bodyWidth * 0.24);
+  addLeg('left', -hipWidth);
+  addLeg('right', hipWidth);
+
+  const addTorsoBox = (name, position, scale, material = accent) => {
+    const detail = makePart(new THREE.BoxGeometry(1, 1, 1), material, name);
+    detail.position.set(...position);
+    detail.scale.set(...scale);
+    torsoAnchor.add(detail);
+    return detail;
+  };
+  const addCross = (y, material = accent) => {
+    addTorsoBox('uniformCrossHorizontal', [0.19, y, 0.29], [0.12, 0.035, 0.025], material);
+    addTorsoBox('uniformCrossVertical', [0.19, y, 0.29], [0.035, 0.12, 0.025], material);
+  };
+
+  if (options.theme === 'mecha') {
+    addTorsoBox('mechaChestPlate', [0, 0.16, 0.29], [bodyWidth * 0.58, 0.2, 0.035], accent);
+    [-shoulderWidth, shoulderWidth].forEach((x, index) => {
+      const plate = makePart(new THREE.SphereGeometry(0.16, 10, 8), accent, `mechaShoulder${index}`);
+      plate.scale.set(1.25, 0.65, 0.9);
+      plate.position.set(x, 0.49, 0);
+      torsoAnchor.add(plate);
+    });
+  }
 
   if (options.occupation === 'astronaut') {
     const visor = makePart(new THREE.SphereGeometry(0.37, 16, 10), makeAvatarMaterial('#87dfff', options, true), 'visor');
     visor.scale.set(0.92, 0.48, 0.25);
     visor.position.set(0, 0.02, 0.3);
     faceAnchor.add(visor);
-  } else if (options.occupation === 'teacher' || options.accessoryStyle === 'glasses') {
+    addTorsoBox('astronautControlPanel', [0, 0.12, 0.32], [0.36, 0.2, 0.07], makeAvatarMaterial('#dfe7ef', options));
+    addTorsoBox('astronautScreen', [0, 0.12, 0.40], [0.2, 0.08, 0.02], accent);
+  } else if (options.occupation === 'drone-pilot') {
+    addTorsoBox('droneHarnessLeft', [-0.19, 0.12, 0.3], [0.055, 0.62, 0.035], accent).rotation.z = -0.16;
+    addTorsoBox('droneHarnessRight', [0.19, 0.12, 0.3], [0.055, 0.62, 0.035], accent).rotation.z = 0.16;
+    addTorsoBox('droneController', [0, -0.05, 0.36], [0.34, 0.15, 0.07], makeAvatarMaterial('#25303b', options));
+  } else if (options.occupation === 'hacker') {
+    const hood = makePart(new THREE.TorusGeometry(0.37, 0.075, 8, 22), clothing, 'hackerHood');
+    hood.position.set(0, 0, -0.02);
+    faceAnchor.add(hood);
+    addTorsoBox('hackerGlow', [0, 0.14, 0.31], [0.08, 0.34, 0.025], accent);
+  } else if (options.occupation === 'teacher') {
+    const tie = makePart(new THREE.ConeGeometry(0.085, 0.36, 4), accent, 'teacherTie');
+    tie.position.set(0, 0.18, 0.31);
+    tie.rotation.z = Math.PI;
+    torsoAnchor.add(tie);
+  } else if (options.occupation === 'doctor') {
+    const coat = makeAvatarMaterial('#e9eff1', options);
+    addTorsoBox('doctorCoatLeft', [-0.2, -0.05, 0.29], [0.28, 0.86, 0.035], coat);
+    addTorsoBox('doctorCoatRight', [0.2, -0.05, 0.29], [0.28, 0.86, 0.035], coat);
+    addCross(0.22, accent);
+  } else if (options.occupation === 'nurse') {
+    const nurseCap = makePart(new THREE.BoxGeometry(0.34, 0.13, 0.18), makeAvatarMaterial('#f0f3f7', options), 'nurseCap');
+    nurseCap.position.set(0, 0.36, 0.04);
+    faceAnchor.add(nurseCap);
+    addCross(0.17, accent);
+  } else if (options.occupation === 'police') {
+    const policeCap = makePart(new THREE.CylinderGeometry(0.3, 0.34, 0.13, 14), clothing, 'policeCap');
+    policeCap.position.set(0, 0.34, 0.02);
+    faceAnchor.add(policeCap);
+    addTorsoBox('policeBadge', [0.19, 0.24, 0.31], [0.1, 0.13, 0.025], accent);
+    addTorsoBox('policeBelt', [0, -0.34, 0.25], [bodyWidth * 0.78, 0.09, 0.05], makeAvatarMaterial('#181b22', options));
+  } else if (options.occupation === 'firefighter') {
+    const helmet = makePart(new THREE.CylinderGeometry(0.36, 0.4, 0.16, 14), makeAvatarMaterial('#ba3c34', options), 'firefighterHelmet');
+    helmet.position.set(0, 0.32, 0);
+    faceAnchor.add(helmet);
+    addTorsoBox('firefighterStripe', [0, 0.02, 0.31], [bodyWidth * 0.72, 0.12, 0.025], accent);
+  } else if (options.occupation === 'chef') {
+    const chefWhite = makeAvatarMaterial('#f3f0e9', options);
+    const chefHatBase = makePart(new THREE.CylinderGeometry(0.26, 0.28, 0.25, 14), chefWhite, 'chefHatBase');
+    chefHatBase.position.set(0, 0.42, 0);
+    faceAnchor.add(chefHatBase);
+    [-0.14, 0, 0.14].forEach((x, index) => {
+      const puff = makePart(new THREE.SphereGeometry(0.16, 10, 8), chefWhite, `chefHatPuff${index}`);
+      puff.position.set(x, 0.56, 0);
+      faceAnchor.add(puff);
+    });
+    addTorsoBox('chefButtons', [0, 0.1, 0.31], [0.06, 0.48, 0.025], accent);
+  } else if (options.occupation === 'singer') {
+    [-shoulderWidth, shoulderWidth].forEach((x, index) => {
+      const epaulette = makePart(new THREE.SphereGeometry(0.17, 10, 8), accent, `singerEpaulette${index}`);
+      epaulette.scale.set(1.25, 0.55, 0.86);
+      epaulette.position.set(x, 0.49, 0);
+      torsoAnchor.add(epaulette);
+    });
+    addTorsoBox('singerChestAccent', [0, 0.12, 0.31], [0.1, 0.56, 0.025], accent);
+  } else {
+    // Student uniform collar keeps the default outfit visually identifiable.
+    [-0.11, 0.11].forEach((x, index) => {
+      const collar = addTorsoBox(`studentCollar${index}`, [x, 0.42, 0.3], [0.18, 0.08, 0.025], accent);
+      collar.rotation.z = index ? -0.42 : 0.42;
+    });
+  }
+
+  if (options.accessoryStyle === 'glasses' && options.occupation !== 'astronaut') {
     [-0.12, 0.12].forEach(x => {
       const glass = makePart(new THREE.TorusGeometry(0.075, 0.012, 6, 10), accent, 'glasses');
       glass.position.set(x, 0.015, 0.325);
       faceAnchor.add(glass);
     });
-  } else if (options.occupation === 'firefighter') {
-    const helmet = makePart(new THREE.CylinderGeometry(0.37, 0.37, 0.13, 14), accent, 'helmet');
-    helmet.position.y = 0.29;
-    faceAnchor.add(helmet);
+    const bridge = makePart(new THREE.BoxGeometry(0.08, 0.012, 0.012), accent, 'glassesBridge');
+    bridge.position.set(0, 0.015, 0.325);
+    faceAnchor.add(bridge);
+  } else if (options.accessoryStyle === 'headphones') {
+    [-0.35, 0.35].forEach((x, index) => {
+      const earPad = makePart(new THREE.CylinderGeometry(0.11, 0.11, 0.08, 12), accent, `headphonePad${index}`);
+      earPad.rotation.z = Math.PI / 2;
+      earPad.position.set(x, 0.02, 0);
+      faceAnchor.add(earPad);
+    });
+    const band = makePart(new THREE.TorusGeometry(0.35, 0.035, 8, 20, Math.PI), accent, 'headphoneBand');
+    band.rotation.z = Math.PI;
+    band.position.y = 0.04;
+    faceAnchor.add(band);
+  } else if (options.accessoryStyle === 'cap' && !['astronaut', 'police', 'firefighter', 'chef'].includes(options.occupation)) {
+    const cap = makePart(new THREE.CylinderGeometry(0.31, 0.35, 0.14, 14), accent, 'customCap');
+    cap.position.set(0, 0.32, 0.02);
+    faceAnchor.add(cap);
+    const brim = makePart(new THREE.BoxGeometry(0.3, 0.045, 0.22), accent, 'customCapBrim');
+    brim.position.set(0, 0.27, 0.25);
+    faceAnchor.add(brim);
   }
 
   avatar.updateMatrixWorld(true);

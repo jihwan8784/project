@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#090b12" />
   <title>Pose Vision — Live VTuber</title>
+  <link rel="icon" href="data:," />
   <link rel="stylesheet" href="main.css" />
 </head>
 <body>
@@ -12,8 +13,8 @@
     <section id="optionSetup" class="option-setup" aria-labelledby="optionTitle">
       <header class="setup-header">
         <p class="eyebrow">POSE VISION · LIVE VTUBER</p>
-        <h1 id="optionTitle">아바타 옵션을 선택하세요</h1>
-        <p>옵션을 완료하면 카메라와 실시간 트래킹이 시작됩니다.</p>
+        <h1 id="optionTitle">나만의 아바타를 만들어보세요</h1>
+        <p>아바타의 기본 형태는 유지하면서 얼굴, 헤어, 컬러와 스타일을 자유롭게 조합할 수 있습니다.</p>
       </header>
 
       <div class="option-layout">
@@ -24,20 +25,52 @@
 
         <section class="option-panel" aria-label="아바타 옵션">
           <div>
-            <p class="panel-kicker">AVATAR OPTION</p>
-            <h2>아바타 조합</h2>
-            <p class="option-description">배경을 바꾸면 왼쪽 3D 공간의 바닥·조명·환경도 함께 변경됩니다.</p>
+            <p class="panel-kicker">AVATAR CUSTOM</p>
+            <h2>아바타 커스텀</h2>
+            <p class="option-description">선택하는 즉시 왼쪽 3D 아바타에 반영됩니다.</p>
           </div>
-          <div class="option-fields">
-            <label class="option-field"><span>성별</span><select id="genderSelect"></select></label>
-            <label class="option-field"><span>연령대</span><select id="ageSelect"></select></label>
-            <label class="option-field"><span>체형</span><select id="bodySelect"></select></label>
-            <label class="option-field"><span>직업군</span><select id="occupationSelect"></select></label>
-            <label class="option-field"><span>배경</span><select id="backgroundSelect"></select></label>
-            <label class="option-field"><span>테마</span><select id="themeSelect"></select></label>
-            <label class="option-field"><span>헤어스타일</span><select id="hairStyleSelect"></select></label>
+          <div class="custom-scroll">
+            <section class="custom-section" aria-labelledby="bodyCustomTitle">
+              <h3 id="bodyCustomTitle"><span>01</span> 기본 형태</h3>
+              <div class="option-fields">
+                <label class="option-field"><span>성별</span><select id="genderSelect"></select></label>
+                <label class="option-field"><span>연령대</span><select id="ageSelect"></select></label>
+                <label class="option-field"><span>체형</span><select id="bodySelect"></select></label>
+                <label class="option-field"><span>얼굴형</span><select id="faceShapeSelect"></select></label>
+              </div>
+            </section>
+
+            <section class="custom-section" aria-labelledby="styleCustomTitle">
+              <h3 id="styleCustomTitle"><span>02</span> 스타일</h3>
+              <div class="option-fields">
+                <label class="option-field"><span>헤어스타일</span><select id="hairStyleSelect"></select></label>
+                <label class="option-field"><span>액세서리</span><select id="accessorySelect"></select></label>
+                <label class="option-field"><span>직업 의상</span><select id="occupationSelect"></select></label>
+                <label class="option-field"><span>테마</span><select id="themeSelect"></select></label>
+              </div>
+            </section>
+
+            <section class="custom-section" aria-labelledby="colorCustomTitle">
+              <h3 id="colorCustomTitle"><span>03</span> 컬러</h3>
+              <div class="palette-fields">
+                <fieldset class="palette-field"><legend>피부</legend><div id="skinColorPalette" class="swatch-list"></div></fieldset>
+                <fieldset class="palette-field"><legend>헤어</legend><div id="hairColorPalette" class="swatch-list"></div></fieldset>
+                <fieldset class="palette-field"><legend>눈동자</legend><div id="eyeColorPalette" class="swatch-list"></div></fieldset>
+                <fieldset class="palette-field"><legend>의상</legend><div id="outfitColorPalette" class="swatch-list"></div></fieldset>
+                <fieldset class="palette-field"><legend>포인트</legend><div id="accentColorPalette" class="swatch-list"></div></fieldset>
+              </div>
+            </section>
+
+            <section class="custom-section" aria-labelledby="sceneCustomTitle">
+              <h3 id="sceneCustomTitle"><span>04</span> 배경</h3>
+              <label class="option-field"><span>아바타 공간</span><select id="backgroundSelect"></select></label>
+            </section>
           </div>
-          <button id="completeOptionsButton" class="primary-action" type="button">옵션 선택 완료</button>
+          <div class="custom-actions">
+            <button id="randomizeOptionsButton" class="secondary-action" type="button">랜덤 조합</button>
+            <button id="resetOptionsButton" class="secondary-action" type="button">초기화</button>
+            <button id="completeOptionsButton" class="primary-action" type="button">이 아바타로 시작</button>
+          </div>
           <p id="setupStatus" class="setup-status" aria-live="polite"></p>
         </section>
       </div>
