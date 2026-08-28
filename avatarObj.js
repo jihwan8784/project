@@ -267,8 +267,155 @@ function setAnchorRestDirection(anchor) {
 function disposeGroup(group) {
   group.traverse(object => {
     object.geometry?.dispose?.();
-    if (Array.isArray(object.material)) object.material.forEach(material => material.dispose?.());
-    else object.material?.dispose?.();
+    if (Array.isArray(object.material)) object.material.forEach(disposeMaterial);
+    else disposeMaterial(object.material);
+  });
+}
+
+function disposeMaterial(material) {
+  if (!material) return;
+  material.map?.dispose?.();
+  material.alphaMap?.dispose?.();
+  material.dispose?.();
+}
+
+function createImagePlane(src, name, {
+  width,
+  height,
+  mirror = false,
+  pivotX = 0.5,
+  pivotY = 0.5,
+}) {
+  const texture = new THREE.TextureLoader().load(
+    src,
+    loadedTexture => {
+      loadedTexture.colorSpace = THREE.SRGBColorSpace;
+      loadedTexture.needsUpdate = true;
+    },
+  );
+  texture.colorSpace = THREE.SRGBColorSpace;
+  if (mirror) {
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.repeat.x = -1;
+    texture.offset.x = 1;
+  }
+
+  const geometry = new THREE.PlaneGeometry(width, height);
+  geometry.translate((0.5 - pivotX) * width, (pivotY - 0.5) * height, 0);
+
+  const mesh = new THREE.Mesh(
+    geometry,
+    new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      alphaTest: 0.03,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  mesh.name = name;
+  mesh.renderOrder = 8;
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+function makeBaseAvatarTransparent(avatar) {
+  avatar.traverse(object => {
+    if (!object.isMesh || object.name.endsWith('ImagePart')) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    materials.filter(Boolean).forEach(material => {
+      material.transparent = true;
+      material.opacity = 0;
+      material.depthWrite = false;
+      material.needsUpdate = true;
+    });
+    object.castShadow = false;
+    object.receiveShadow = false;
+  });
+}
+
+const IMAGE_PART_LABELS = Object.freeze({
+  face: '얼굴',
+  hair: '머리카락',
+  neckTop: '목/어깨',
+  top: '앞치마 상체',
+  bottom: '앞치마 하체',
+  leftArm: '왼팔',
+  rightArm: '오른팔',
+  leftLeg: '왼발',
+  rightLeg: '오른발',
+  shoes: '신발',
+});
+
+function getBodyWidth(options) {
+  return options.bodyVariant === 'slim'
+    ? 0.68
+    : options.bodyVariant === 'muscular'
+      ? 0.92
+      : options.bodyVariant === 'volume' ? 0.88 : 0.79;
+}
+
+function getAvatarImageLayout(bodyWidth, parts = {}) {
+  return {
+    face: { parent: 'face', position: [0, 0, 0.37], width: 0.78, height: 0.78 },
+    hair: { parent: 'face', position: [0, 0.12, 0.39], width: 0.88, height: 0.55 },
+    neckTop: {
+      parent: 'torso', position: [0, 0.40, 0.55], width: bodyWidth * 1.22, height: bodyWidth * 0.87,
+    },
+    top: {
+      parent: 'torso', position: [0, 0.02, 0.54], width: bodyWidth, height: bodyWidth * 1.42,
+    },
+    bottom: {
+      parent: 'torso', position: [0, -0.53, 0.56], width: bodyWidth * 0.98, height: bodyWidth * 0.85,
+    },
+    leftArm: {
+      parent: 'leftUpperArm', position: [0.13, -0.05, 0.57], width: 0.50, height: 0.94, pivotX: 0.78, pivotY: 0.08,
+    },
+    rightArm: {
+      parent: 'rightUpperArm', position: [-0.13, -0.05, 0.57], width: 0.48, height: 0.94, pivotX: 0.22, pivotY: 0.08,
+    },
+    leftLeg: {
+      parent: 'leftThigh', position: [0, 0, 0.55], width: 0.43, height: 1.18, pivotX: 0.48, pivotY: 0.03,
+    },
+    rightLeg: {
+      parent: 'rightThigh', position: [0, 0, 0.55], width: 0.43, height: 1.18, pivotX: 0.52, pivotY: 0.03,
+      mirror: parts.rightLeg === parts.leftLeg,
+    },
+    shoes: { parent: 'torso', position: [0, -1.52, 0.56], width: bodyWidth * 1.08, height: 0.34 },
+  };
+}
+
+export function getAvatarPartCoordinates(options = {}) {
+  const parts = options.avatarAssets?.parts || {};
+  const layout = getAvatarImageLayout(getBodyWidth(options), parts);
+  return Object.entries(layout)
+    .filter(([key]) => parts[key])
+    .map(([key, spec]) => ({
+      key,
+      label: IMAGE_PART_LABELS[key] || key,
+      parent: spec.parent,
+      x: spec.position[0],
+      y: spec.position[1],
+      z: spec.position[2],
+    }));
+}
+
+function addAvatarImageParts(torsoAnchor, faceAnchor, rig, options, bodyWidth) {
+  const parts = options.avatarAssets?.parts || {};
+  const parents = {
+    face: faceAnchor,
+    torso: torsoAnchor,
+    leftUpperArm: rig.leftUpperArm,
+    rightUpperArm: rig.rightUpperArm,
+    leftThigh: rig.leftThigh,
+    rightThigh: rig.rightThigh,
+  };
+  const layout = getAvatarImageLayout(bodyWidth, parts);
+  Object.entries(layout).forEach(([key, spec]) => {
+    if (!parts[key] || !parents[spec.parent]) return;
+    const plane = createImagePlane(parts[key], `${key}ImagePart`, spec);
+    plane.position.set(...spec.position);
+    parents[spec.parent].add(plane);
   });
 }
 
@@ -281,7 +428,7 @@ function buildPartAvatar(options) {
   const shoes = makeAvatarMaterial(options.shoeColor, options);
   const accent = makeAvatarMaterial(options.accentColor, options, true);
   const hair = makeAvatarMaterial(options.hairColor, options);
-  const bodyWidth = options.bodyVariant === 'slim' ? 0.68 : options.bodyVariant === 'muscular' ? 0.92 : options.bodyVariant === 'volume' ? 0.88 : 0.79;
+  const bodyWidth = getBodyWidth(options);
   const limbRadius = options.bodyVariant === 'slim' ? 0.105 : options.bodyVariant === 'muscular' ? 0.15 : 0.125;
   const isFemale = options.gender === 'female';
   const shoulderWidth = bodyWidth * (isFemale ? 0.52 : 0.60);
@@ -532,6 +679,9 @@ function buildPartAvatar(options) {
     faceAnchor.add(brim);
   }
 
+  if (options.avatarAssets?.hideBaseAvatar) makeBaseAvatarTransparent(avatar);
+  addAvatarImageParts(torsoAnchor, faceAnchor, rig, options, bodyWidth);
+
   avatar.updateMatrixWorld(true);
   Object.values(rig).forEach(setAnchorRestDirection);
   return { avatar, rig };
@@ -774,26 +924,28 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
   function updateRigFromPose(targets) {
     if (!rig || !targets) return;
 
-    setBoneDirection3D(rig.leftUpperArm, targets.upperArmL, 0.40);
-    setBoneDirection3D(rig.leftForearm, targets.forearmL, 0.46);
-    setBoneDirection3D(rig.rightUpperArm, targets.upperArmR, 0.40);
-    setBoneDirection3D(rig.rightForearm, targets.forearmR, 0.46);
+    // Asset filenames use screen-left/screen-right. A person facing the camera
+    // has the opposite anatomical side on each screen side, so pose targets cross.
+    setBoneDirection3D(rig.leftUpperArm, targets.upperArmR, 0.40);
+    setBoneDirection3D(rig.leftForearm, targets.forearmR, 0.46);
+    setBoneDirection3D(rig.rightUpperArm, targets.upperArmL, 0.40);
+    setBoneDirection3D(rig.rightForearm, targets.forearmL, 0.46);
 
-    setBoneDirection3D(rig.leftThigh, targets.thighL, 0.38);
-    setBoneDirection3D(rig.leftShin, targets.shinL, 0.44);
-    setBoneDirection3D(rig.rightThigh, targets.thighR, 0.38);
-    setBoneDirection3D(rig.rightShin, targets.shinR, 0.44);
+    setBoneDirection3D(rig.leftThigh, targets.thighR, 0.38);
+    setBoneDirection3D(rig.leftShin, targets.shinR, 0.44);
+    setBoneDirection3D(rig.rightThigh, targets.thighL, 0.38);
+    setBoneDirection3D(rig.rightShin, targets.shinL, 0.44);
 
     // Arms ease back to rest when tracking is incomplete. Legs stay in their
     // neutral standing pose whenever their landmarks are unavailable.
-    if (!targets.upperArmL) restoreBoneTowardRest(rig.leftUpperArm);
-    if (!targets.forearmL) restoreBoneTowardRest(rig.leftForearm);
-    if (!targets.upperArmR) restoreBoneTowardRest(rig.rightUpperArm);
-    if (!targets.forearmR) restoreBoneTowardRest(rig.rightForearm);
-    if (!targets.thighL) lockBoneAtRest(rig.leftThigh);
-    if (!targets.shinL) lockBoneAtRest(rig.leftShin);
-    if (!targets.thighR) lockBoneAtRest(rig.rightThigh);
-    if (!targets.shinR) lockBoneAtRest(rig.rightShin);
+    if (!targets.upperArmR) restoreBoneTowardRest(rig.leftUpperArm);
+    if (!targets.forearmR) restoreBoneTowardRest(rig.leftForearm);
+    if (!targets.upperArmL) restoreBoneTowardRest(rig.rightUpperArm);
+    if (!targets.forearmL) restoreBoneTowardRest(rig.rightForearm);
+    if (!targets.thighR) lockBoneAtRest(rig.leftThigh);
+    if (!targets.shinR) lockBoneAtRest(rig.leftShin);
+    if (!targets.thighL) lockBoneAtRest(rig.rightThigh);
+    if (!targets.shinL) lockBoneAtRest(rig.rightShin);
 
     root.rotation.z += (targets.bodyTilt * 0.26 - root.rotation.z) * 0.12;
     root.rotation.x += (targets.depthLean * 0.32 - root.rotation.x) * 0.12;
@@ -823,7 +975,7 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     model = partAvatar.avatar;
     // The part rig is designed in readable joint units. Scale it, then use its
     // actual bounds to place the soles on the floor for every body type.
-    model.scale.setScalar(0.70);
+    model.scale.setScalar(0.82);
     model.updateMatrixWorld(true);
     const modelBounds = new THREE.Box3().setFromObject(model);
     model.position.y = -modelBounds.min.y;

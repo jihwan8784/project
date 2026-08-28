@@ -1,21 +1,20 @@
 import { closeLandmarkers, initPoseLandmarker, getPoseData } from './poseLandmarker.js';
 import { drawSkeleton, resetSkeletonState } from './ui.js';
-import { create2DAvatar, DEFAULT_AVATAR_OPTIONS } from './avatarObj.js';
+import {
+  create2DAvatar,
+  DEFAULT_AVATAR_OPTIONS,
+} from './avatar2d.js';
 import {
   DEFAULT_SELECTION,
   OPTION_GROUPS,
   normalizeSelection,
   selectionToAppearance,
 } from './avatarOptions.js';
+import { resolveAvatarAssets } from './avatarAssets.js';
 
-const optionSetup = document.getElementById('optionSetup');
-const optionPreview = document.getElementById('optionAvatarPreview');
 const optionReferenceCaption = document.getElementById('optionReferenceCaption');
-const completeOptionsButton = document.getElementById('completeOptionsButton');
-const setupStatus = document.getElementById('setupStatus');
-const trackingStage = document.getElementById('trackingStage');
-const cameraPanel = document.querySelector('.camera-panel');
 const avatarPanel = document.querySelector('.avatar-panel');
+const avatarPartCoordinates = document.getElementById('avatarPartCoordinates');
 const webcamVideo = document.getElementById('webcamVideo');
 const webcamCanvas = document.getElementById('webcamCanvas');
 const liveAvatarOverlay = document.getElementById('liveAvatarOverlay');
@@ -60,7 +59,6 @@ const LOST_POSE_GRACE_MS = 650;
 const LANDMARK_GRACE_MS = 500;
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const GOOGLE_IDENTITY_SCRIPT = 'https://accounts.google.com/gsi/client';
-let previewAvatar = null;
 let liveAvatar = null;
 let cameraStream = null;
 let scheduledFrameId = null;
@@ -77,6 +75,7 @@ let googleAccessToken = '';
 let googleTokenExpiresAt = 0;
 let googleIdentityPromise = null;
 let currentSelection = readStoredSelection();
+let latestAvatarCoordinates = [];
 
 const OPTION_LABELS = {
   gender: '성별', age: '연령대', body: '체형', faceShape: '얼굴형', occupation: '직업 의상',
@@ -140,7 +139,34 @@ function syncPaletteSelection(group) {
 
 function showOptionReference(group) {
   const label = selectedLabel(group, currentSelection[group]);
-  optionReferenceCaption.textContent = `${OPTION_LABELS[group]} · ${label} · GLB 캐릭터`;
+  const assets = resolveAvatarAssets(currentSelection);
+  optionReferenceCaption.textContent = assets.label
+    ? `${OPTION_LABELS[group]} · ${label} · ${assets.label} 이미지 적용`
+    : `${OPTION_LABELS[group]} · ${label} · 기본 2D 캐릭터`;
+}
+
+function renderPartCoordinates(coordinates = latestAvatarCoordinates) {
+  latestAvatarCoordinates = coordinates;
+  if (!coordinates.length) {
+    const empty = document.createElement('p');
+    empty.className = 'coordinate-empty';
+    empty.textContent = '이 조합에 등록된 부위 이미지가 없습니다.';
+    avatarPartCoordinates.replaceChildren(empty);
+    return;
+  }
+
+  avatarPartCoordinates.replaceChildren(...coordinates.map(part => {
+    const row = document.createElement('div');
+    row.className = 'coordinate-row';
+    row.setAttribute('role', 'row');
+    [part.label, part.x, part.y, part.rotation].forEach((value, index) => {
+      const cell = document.createElement('span');
+      cell.setAttribute('role', 'cell');
+      cell.textContent = index === 0 ? String(value) : Number(value).toFixed(2);
+      row.appendChild(cell);
+    });
+    return row;
+  }));
 }
 
 function applyOptionSelection(changedGroup = 'theme') {
@@ -149,7 +175,7 @@ function applyOptionSelection(changedGroup = 'theme') {
     ...Object.fromEntries(Object.entries(optionSelects).map(([key, select]) => [key, select.value])),
   });
   localStorage.setItem('poseVisionAvatarSelection', JSON.stringify(currentSelection));
-  previewAvatar?.updateAppearance(selectionToAppearance(currentSelection));
+  liveAvatar?.updateAppearance(readStoredAvatarOptions());
   showOptionReference(changedGroup);
 }
 
@@ -211,11 +237,21 @@ function readStoredAvatarOptions() {
   try {
     stored = JSON.parse(localStorage.getItem('poseVisionAvatarStyle') || '{}');
   } catch {}
-  return { ...DEFAULT_AVATAR_OPTIONS, ...stored, ...selectionToAppearance(currentSelection) };
+  return {
+    ...DEFAULT_AVATAR_OPTIONS,
+    ...stored,
+    ...selectionToAppearance(currentSelection),
+    avatarAssets: resolveAvatarAssets(currentSelection),
+  };
 }
 
-function createPreview() {
-  if (!previewAvatar) previewAvatar = create2DAvatar(optionPreview, readStoredAvatarOptions());
+function createLiveAvatar() {
+  if (liveAvatar) return;
+  liveAvatar = create2DAvatar(liveAvatarOverlay, readStoredAvatarOptions(), {
+    overlay: true,
+    onCoordinatesChange: renderPartCoordinates,
+  });
+  liveAvatarOverlay.classList.add('is-visible');
 }
 
 function getSettings() {
@@ -296,20 +332,6 @@ function hasReliablePose(pose) {
   return reliableCount >= 2 && [11, 12].some(reliable) && [23, 24].some(reliable);
 }
 
-function getCoverMetrics(width, height) {
-  const videoWidth = webcamVideo.videoWidth || width;
-  const videoHeight = webcamVideo.videoHeight || height;
-  const scale = Math.max(width / videoWidth, height / videoHeight);
-  const displayWidth = videoWidth * scale;
-  const displayHeight = videoHeight * scale;
-  return {
-    x: (width - displayWidth) / 2,
-    y: (height - displayHeight) / 2,
-    width: displayWidth,
-    height: displayHeight,
-  };
-}
-
 function getFaceBlendshapes(result) {
   return result?.faceBlendshapes?.[0]?.categories ?? [];
 }
@@ -374,7 +396,6 @@ function processFrame(now) {
       detectionStatus.textContent = 'Pose Lite · 위치 유지 중';
     } else {
       latestPose = null;
-      liveAvatarOverlay.classList.remove('is-visible');
       detectionStatus.textContent = 'Pose Lite · 사람을 찾는 중';
     }
     captureButton.disabled = !holdingPose;
@@ -385,8 +406,10 @@ function processFrame(now) {
 }
 
 async function startTracking() {
-  completeOptionsButton.disabled = true;
-  setupStatus.textContent = '카메라와 Pose Lite를 준비하고 있습니다.';
+  if (tracking || cameraStream) return;
+  createLiveAvatar();
+  stopCameraButton.disabled = true;
+  detectionStatus.textContent = '카메라와 Pose Lite 준비 중';
   try {
     cameraStream = await navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
@@ -395,17 +418,9 @@ async function startTracking() {
     await webcamVideo.play();
     syncCanvasSize();
 
-    previewAvatar?.dispose();
-    previewAvatar = null;
-    optionSetup.hidden = true;
-    trackingStage.hidden = false;
-    liveAvatarOverlay.hidden = false;
-    liveAvatarOverlay.classList.remove('is-visible');
-    liveAvatar = create2DAvatar(liveAvatarOverlay, readStoredAvatarOptions(), {
-      overlay: true,
-    });
     landmarkSeenAt = new Array(33).fill(0);
     tracking = true;
+    stopCameraButton.textContent = '추적 중지';
     scheduleNextFrame();
 
     // The camera/avatar stage should not be blocked by a slow or unavailable
@@ -419,8 +434,10 @@ async function startTracking() {
     console.error('Camera start failed.', error);
     cameraStream?.getTracks().forEach(track => track.stop());
     cameraStream = null;
-    setupStatus.textContent = `시작 실패: ${error.message}`;
-    completeOptionsButton.disabled = false;
+    detectionStatus.textContent = `카메라 없이 아바타 표시 · ${error.message}`;
+    stopCameraButton.textContent = '추적 시작';
+  } finally {
+    stopCameraButton.disabled = false;
   }
 }
 
@@ -431,40 +448,11 @@ function stopTracking() {
   cameraStream = null;
   webcamVideo.srcObject = null;
   closeLandmarkers();
-  liveAvatar?.dispose();
-  liveAvatar = null;
-  liveAvatarOverlay.classList.remove('is-visible');
-  liveAvatarOverlay.hidden = true;
   latestPose = null;
   lastReliablePoseAt = 0;
   landmarkSeenAt = new Array(33).fill(0);
-  trackingStage.hidden = true;
-  optionSetup.hidden = false;
-  completeOptionsButton.disabled = false;
-  setupStatus.textContent = '';
-  createPreview();
-}
-
-function drawVideoCover(context, width, height, mirror) {
-  const cover = getCoverMetrics(width, height);
-  context.save();
-  if (mirror) {
-    context.translate(width, 0);
-    context.scale(-1, 1);
-  }
-  context.drawImage(webcamVideo, cover.x, cover.y, cover.width, cover.height);
-  context.restore();
-  return cover;
-}
-
-function drawCameraPanel(context, x, y, width, height, mirror) {
-  context.save();
-  context.beginPath();
-  context.rect(x, y, width, height);
-  context.clip();
-  context.translate(x, y);
-  drawVideoCover(context, width, height, mirror);
-  context.restore();
+  stopCameraButton.textContent = '추적 시작';
+  detectionStatus.textContent = '카메라 추적 중지됨';
 }
 
 function canvasToBlob(canvas) {
@@ -478,37 +466,17 @@ function timestampName() {
 }
 
 async function captureComposite() {
-  if (!latestPose || !liveAvatar) return;
+  if (!liveAvatar) return;
   captureButton.disabled = true;
   captureStatus.textContent = '현재 화면을 저장하고 있습니다.';
   try {
-    const width = trackingStage.clientWidth;
-    const height = trackingStage.clientHeight;
+    const width = Math.max(1, avatarPanel.clientWidth);
+    const height = Math.max(1, avatarPanel.clientHeight);
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext('2d');
-    const stageRect = trackingStage.getBoundingClientRect();
-    const cameraRect = cameraPanel.getBoundingClientRect();
-    const avatarRect = avatarPanel.getBoundingClientRect();
-    const cameraX = cameraRect.left - stageRect.left;
-    const cameraY = cameraRect.top - stageRect.top;
-    const avatarX = avatarRect.left - stageRect.left;
-    const avatarY = avatarRect.top - stageRect.top;
-    const panelWidth = Math.max(1, avatarRect.width);
-    const panelHeight = Math.max(1, avatarRect.height);
-    const avatarGradient = context.createLinearGradient(avatarX, avatarY, avatarX + panelWidth, avatarY + panelHeight);
-    avatarGradient.addColorStop(0, '#17152e');
-    avatarGradient.addColorStop(1, '#081018');
-    context.fillStyle = avatarGradient;
-    context.fillRect(avatarX, avatarY, panelWidth, panelHeight);
-    drawCameraPanel(context, cameraX, cameraY, cameraRect.width, cameraRect.height, getSettings().mirror);
-
-    if (getSettings().showSkeleton) {
-      context.drawImage(webcamCanvas, cameraX, cameraY, cameraRect.width, cameraRect.height);
-    }
-
-    context.drawImage(liveAvatar.domElement, avatarX, avatarY, panelWidth, panelHeight);
+    context.drawImage(liveAvatar.domElement, 0, 0, width, height);
 
     lastCaptureBlob = await canvasToBlob(canvas);
     lastCaptureName = timestampName();
@@ -524,7 +492,7 @@ async function captureComposite() {
   } catch (error) {
     captureStatus.textContent = `캡처 실패: ${error.message}`;
   } finally {
-    captureButton.disabled = !latestPose;
+    captureButton.disabled = false;
   }
 }
 
@@ -535,7 +503,7 @@ async function loadDriveConfig() {
     googleClientId = config.clientId || '';
     driveConnectButton.disabled = !config.configured;
     driveConnectButton.title = config.configured ? '' : (config.reason || '.env에 GOOGLE_CLIENT_ID를 설정하세요.');
-    if (!config.configured) captureStatus.textContent = config.reason || 'Google Drive OAuth 설정이 필요합니다.';
+    if (!config.configured) captureStatus.textContent = '';
   } catch (error) {
     driveConnectButton.disabled = true;
     driveConnectButton.title = 'Google Drive 설정을 확인할 수 없습니다.';
@@ -697,13 +665,16 @@ async function uploadCaptureToDrive() {
   }
 }
 
+<<<<<<< HEAD
 completeOptionsButton.addEventListener('click', startTracking);
 randomizeOptionsButton.addEventListener('click', randomizeOptions);
 resetOptionsButton.addEventListener('click', resetOptions);
+=======
+>>>>>>> 6ec7b2d53f84fb0d8420082ab0341a6aba1c28a0
 captureButton.addEventListener('click', captureComposite);
 driveConnectButton.addEventListener('click', connectGoogleDrive);
 driveSaveButton.addEventListener('click', uploadCaptureToDrive);
-stopCameraButton.addEventListener('click', stopTracking);
+stopCameraButton.addEventListener('click', () => tracking ? stopTracking() : startTracking());
 webcamVideo.addEventListener('loadedmetadata', syncCanvasSize);
 settingsButton.addEventListener('click', () => {
   settingsPanel.hidden = !settingsPanel.hidden;
@@ -725,11 +696,11 @@ window.addEventListener('pagehide', () => {
   cameraStream?.getTracks().forEach(track => track.stop());
   closeLandmarkers();
   liveAvatar?.dispose();
-  previewAvatar?.dispose();
 }, { once: true });
 
 initializeOptionControls();
 loadSettings();
-createPreview();
+createLiveAvatar();
 applyOptionSelection('theme');
 loadDriveConfig();
+startTracking();

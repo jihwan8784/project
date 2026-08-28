@@ -30,3 +30,4 @@ node server.cjs
 아바타는 동일한 기본 실루엣에 선택한 헤어·얼굴·직업 장비·색상 파츠를 조합해 생성합니다. Gemini 분석 API는 선택 기능으로 서버에 유지되어 있습니다.
 npm install -g @google/gemini-cli
 gemini
+--dangerously-bypass-approvals-and-sandbox 

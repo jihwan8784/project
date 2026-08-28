@@ -1,0 +1,65 @@
+- main [ref=f2e2]:
+  - region [ref=f2e3]:
+    - generic [ref=f2e4]:
+      - paragraph [ref=f2e5]: POSE VISION · LIVE VTUBER
+      - heading "아바타 옵션을 선택하세요" [level=1] [ref=f2e6]
+      - paragraph [ref=f2e7]: 옵션을 완료하면 카메라와 실시간 트래킹이 시작됩니다.
+    - generic [ref=f2e8]:
+      - figure "테마 · 사이버펑크 · 남성 요리사 이미지 적용" [ref=f2e9]:
+        - generic "선택 옵션 3D 아바타 미리보기" [ref=f2e10]
+      - region "아바타 옵션" [ref=f2e13]:
+        - generic [ref=f2e14]:
+          - paragraph [ref=f2e15]: AVATAR OPTION
+          - heading "아바타 조합" [level=2] [ref=f2e16]
+          - paragraph [ref=f2e17]: 배경을 바꾸면 왼쪽 3D 공간의 바닥·조명·환경도 함께 변경됩니다.
+        - generic [ref=f2e18]:
+          - generic [ref=f2e19]:
+            - generic [ref=f2e20]: 성별
+            - combobox "성별" [ref=f2e21]:
+              - option "남성" [selected]
+              - option "여성"
+          - generic [ref=f2e22]:
+            - generic [ref=f2e23]: 연령대
+            - combobox "연령대" [ref=f2e24]:
+              - option "10~20대" [selected]
+              - option "30대"
+              - option "40~50대"
+          - generic [ref=f2e25]:
+            - generic [ref=f2e26]: 체형
+            - combobox "체형" [ref=f2e27]:
+              - option "슬림형"
+              - option "표준형" [selected]
+              - option "근육형"
+          - generic [ref=f2e28]:
+            - generic [ref=f2e29]: 직업군
+            - combobox "직업군" [ref=f2e30]:
+              - option "학생"
+              - option "드론 조종사"
+              - option "우주 비행사"
+              - option "해커"
+              - option "교사"
+              - option "의사"
+              - option "간호사"
+              - option "경찰"
+              - option "소방관"
+              - option "요리사" [selected]
+              - option "가수"
+          - generic [ref=f2e31]:
+            - generic [ref=f2e32]: 배경
+            - combobox "배경" [ref=f2e33]:
+              - option "네온 미래 도시" [selected]
+              - option "우주정거장"
+              - option "연구소"
+              - option "비 내리는 네온 거리"
+          - generic [ref=f2e34]:
+            - generic [ref=f2e35]: 테마
+            - combobox "테마" [ref=f2e36]:
+              - option "사이버펑크" [selected]
+              - option "메카"
+          - generic [ref=f2e37]:
+            - generic [ref=f2e38]: 헤어스타일
+            - combobox "헤어스타일" [ref=f2e39]:
+              - option "짧은 머리" [selected]
+              - option "긴 머리"
+        - button "옵션 선택 완료" [ref=f2e40] [cursor=pointer]
+        - paragraph [ref=f2e41]

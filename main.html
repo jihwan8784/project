@@ -10,6 +10,7 @@
 </head>
 <body>
   <main class="app-shell">
+<<<<<<< HEAD
     <section id="optionSetup" class="option-setup" aria-labelledby="optionTitle">
       <header class="setup-header">
         <p class="eyebrow">POSE VISION · LIVE VTUBER</p>
@@ -75,59 +76,83 @@
         </section>
       </div>
     </section>
-
-    <section id="trackingStage" class="tracking-stage" hidden aria-label="실시간 아바타 트래킹">
+=======
+    <section id="trackingStage" class="tracking-stage" aria-label="실시간 아바타 트래킹">
       <div class="tracking-columns">
-        <section class="camera-panel" aria-label="웹캠 화면">
-          <video id="webcamVideo" autoplay muted playsinline></video>
-          <canvas id="webcamCanvas"></canvas>
-          <p class="stage-label">CAMERA</p>
-        </section>
         <section class="avatar-panel" aria-label="실시간 아바타 화면">
-          <div id="liveAvatarOverlay" class="live-avatar-overlay" hidden aria-hidden="true"></div>
+          <div id="liveAvatarOverlay" class="live-avatar-overlay is-visible" aria-hidden="true"></div>
           <p class="stage-label">AVATAR</p>
-        </section>
-      </div>
-
-      <div class="tracking-hud">
-        <p id="detectionStatus" class="status-pill" aria-live="polite">Pose Lite 준비 중</p>
-        <div class="action-bar">
-          <button id="settingsButton" class="hud-button" type="button" aria-expanded="false">설정</button>
-          <button id="captureButton" class="hud-button primary" type="button" disabled>사진 캡처</button>
-          <button id="driveConnectButton" class="hud-button" type="button" disabled>Google Drive 연결</button>
-          <button id="driveSaveButton" class="hud-button" type="button" disabled>Drive에 저장</button>
-          <button id="stopCameraButton" class="hud-button danger" type="button">종료</button>
-        </div>
-
-        <section id="settingsPanel" class="settings-panel" hidden>
-          <div class="settings-heading">
-            <strong>트래킹 설정</strong>
-            <button id="closeSettingsButton" type="button" aria-label="설정 닫기">×</button>
+          <div class="camera-inputs" aria-hidden="true">
+            <video id="webcamVideo" autoplay muted playsinline></video>
+            <canvas id="webcamCanvas"></canvas>
           </div>
-          <label class="setting-row">
-            <span>흔들림 보정 <output id="smoothingValue">0.35</output></span>
-            <input id="smoothingRange" type="range" min="0" max="0.8" step="0.05" value="0.35" />
-          </label>
-          <label class="setting-row">
-            <span>신뢰도 기준 <output id="confidenceValue">0.50</output></span>
-            <input id="confidenceRange" type="range" min="0.2" max="0.8" step="0.05" value="0.5" />
-          </label>
-          <label><input id="showSkeletonCheckbox" type="checkbox" /> 스켈레톤 표시</label>
-          <label><input id="mirrorCameraCheckbox" type="checkbox" checked /> 좌우 반전</label>
+
+          <div class="tracking-hud">
+            <p id="detectionStatus" class="status-pill" aria-live="polite">Pose Lite 준비 중</p>
+            <div class="action-bar">
+              <button id="settingsButton" class="hud-button" type="button" aria-expanded="false">설정</button>
+              <button id="captureButton" class="hud-button primary" type="button">사진 캡처</button>
+              <button id="driveConnectButton" class="hud-button" type="button" disabled>Google Drive 연결</button>
+              <button id="driveSaveButton" class="hud-button" type="button" disabled>Drive에 저장</button>
+              <button id="stopCameraButton" class="hud-button danger" type="button">추적 중지</button>
+            </div>
+
+            <section id="settingsPanel" class="settings-panel" hidden>
+              <div class="settings-heading">
+                <strong>트래킹 설정</strong>
+                <button id="closeSettingsButton" type="button" aria-label="설정 닫기">×</button>
+              </div>
+              <label class="setting-row">
+                <span>흔들림 보정 <output id="smoothingValue">0.35</output></span>
+                <input id="smoothingRange" type="range" min="0" max="0.8" step="0.05" value="0.35" />
+              </label>
+              <label class="setting-row">
+                <span>신뢰도 기준 <output id="confidenceValue">0.50</output></span>
+                <input id="confidenceRange" type="range" min="0.2" max="0.8" step="0.05" value="0.5" />
+              </label>
+              <label><input id="showSkeletonCheckbox" type="checkbox" /> 스켈레톤 표시</label>
+              <label><input id="mirrorCameraCheckbox" type="checkbox" checked /> 좌우 반전</label>
+            </section>
+
+            <p id="captureStatus" class="capture-status" aria-live="polite"></p>
+          </div>
         </section>
 
-        <p id="captureStatus" class="capture-status" aria-live="polite"></p>
+        <aside class="avatar-options-panel" aria-labelledby="optionTitle">
+          <header class="options-heading">
+            <p class="panel-kicker">POSE VISION · AVATAR OPTION</p>
+            <h1 id="optionTitle">아바타 조합</h1>
+            <p id="optionReferenceCaption" class="option-reference-caption">선택한 옵션이 바로 적용됩니다.</p>
+          </header>
+
+          <div class="option-fields">
+            <label class="option-field"><span>성별</span><select id="genderSelect"></select></label>
+            <label class="option-field"><span>연령대</span><select id="ageSelect"></select></label>
+            <label class="option-field"><span>체형</span><select id="bodySelect"></select></label>
+            <label class="option-field"><span>직업군</span><select id="occupationSelect"></select></label>
+            <label class="option-field"><span>배경</span><select id="backgroundSelect"></select></label>
+            <label class="option-field"><span>테마</span><select id="themeSelect"></select></label>
+            <label class="option-field"><span>헤어스타일</span><select id="hairStyleSelect"></select></label>
+          </div>
+>>>>>>> 6ec7b2d53f84fb0d8420082ab0341a6aba1c28a0
+
+          <section class="coordinate-section" aria-labelledby="coordinateTitle">
+            <div class="coordinate-heading">
+              <h2 id="coordinateTitle">부위별 좌표</h2>
+              <span>화면 기준</span>
+            </div>
+            <div class="coordinate-table" role="table" aria-label="아바타 이미지 부위별 좌표">
+              <div class="coordinate-row coordinate-header" role="row">
+                <span role="columnheader">부위</span><span role="columnheader">X</span><span role="columnheader">Y</span><span role="columnheader">각도</span>
+              </div>
+              <div id="avatarPartCoordinates"></div>
+            </div>
+          </section>
+        </aside>
       </div>
     </section>
   </main>
 
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js"
-      }
-    }
-  </script>
   <script src="main.js" type="module"></script>
 </body>
 </html>
