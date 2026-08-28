@@ -173,6 +173,7 @@ h1 { margin-bottom: 8px; font-size: 1.55rem; letter-spacing: 0; }
   text-align: right;
   backdrop-filter: blur(12px);
 }
+.capture-status:empty { display: none; }
 
 .avatar-options-panel {
   min-width: 0;

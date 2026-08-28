@@ -430,7 +430,7 @@ async function loadDriveConfig() {
     googleClientId = config.clientId || '';
     driveConnectButton.disabled = !config.configured;
     driveConnectButton.title = config.configured ? '' : (config.reason || '.env에 GOOGLE_CLIENT_ID를 설정하세요.');
-    if (!config.configured) captureStatus.textContent = config.reason || 'Google Drive OAuth 설정이 필요합니다.';
+    if (!config.configured) captureStatus.textContent = '';
   } catch (error) {
     driveConnectButton.disabled = true;
     driveConnectButton.title = 'Google Drive 설정을 확인할 수 없습니다.';

@@ -29,6 +29,9 @@ const BACKGROUNDS = Object.freeze({
   'rainy-neon-street': { sky: '#080a10', floor: '#10151c', line: '#ef5bb8', structure: '#171b24' },
 });
 
+const fadedImageCache = new WeakMap();
+const limbSegmentCache = new WeakMap();
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -89,27 +92,42 @@ function trackedRig(pose, mirror, width, height) {
     (pose[23].y + pose[24].y) / 2,
   );
   const rawTorsoLength = Math.max(0.08, distance(rawShoulderCenter, rawHipCenter));
-  const pixelsPerUnit = height * 0.26 / rawTorsoLength;
+  const distanceScale = clamp(rawTorsoLength / 0.22, 0.78, 1.28);
+  const desiredTorsoLength = height * 0.26 * distanceScale;
+  const pixelsPerUnit = Math.min(desiredTorsoLength / rawTorsoLength, height * 1.7, width * 2);
   const root = point(
-    width * 0.5 + clamp((rawHipCenter.x - 0.5) * width * 0.32, -width * 0.14, width * 0.14),
-    height * 0.56,
+    width * 0.5 + clamp((rawHipCenter.x - 0.5) * width * 0.58, -width * 0.18, width * 0.18),
+    height * 0.56 + clamp((rawHipCenter.y - 0.58) * height * 0.58, -height * 0.14, height * 0.14),
   );
-  const mapLandmark = (index, fallbackPoint) => {
+  const mapLandmark = (index, fallbackPoint = null) => {
     const source = pose[index];
     if (!hasPoint(source)) return fallbackPoint;
     return point(
-      root.x + (screenX(source.x) - rawHipCenter.x) * pixelsPerUnit,
-      root.y + (source.y - rawHipCenter.y) * pixelsPerUnit,
+      clamp(root.x + (screenX(source.x) - rawHipCenter.x) * pixelsPerUnit, width * 0.10, width * 0.90),
+      clamp(root.y + (source.y - rawHipCenter.y) * pixelsPerUnit, height * 0.06, height * 0.94),
     );
+  };
+  const mapChain = (indices, fallbackChain) => {
+    const start = mapLandmark(indices[0], fallbackChain[0]);
+    let middle = mapLandmark(indices[1]);
+    let end = mapLandmark(indices[2]);
+    if (!middle) middle = end ? mix(start, end, 0.5) : fallbackChain[1];
+    if (!end) {
+      end = point(
+        middle.x + (middle.x - start.x) * 0.92,
+        middle.y + (middle.y - start.y) * 0.92,
+      );
+    }
+    return [start, middle, end];
   };
 
   const armChains = [
-    [mapLandmark(11, fallback.armLeft[0]), mapLandmark(13, fallback.armLeft[1]), mapLandmark(15, fallback.armLeft[2])],
-    [mapLandmark(12, fallback.armRight[0]), mapLandmark(14, fallback.armRight[1]), mapLandmark(16, fallback.armRight[2])],
+    mapChain([11, 13, 15], fallback.armLeft),
+    mapChain([12, 14, 16], fallback.armRight),
   ].sort((a, b) => a[0].x - b[0].x);
   const legChains = [
-    [mapLandmark(23, fallback.legLeft[0]), mapLandmark(25, fallback.legLeft[1]), mapLandmark(27, fallback.legLeft[2])],
-    [mapLandmark(24, fallback.legRight[0]), mapLandmark(26, fallback.legRight[1]), mapLandmark(28, fallback.legRight[2])],
+    mapChain([23, 25, 27], fallback.legLeft),
+    mapChain([24, 26, 28], fallback.legRight),
   ].sort((a, b) => a[0].x - b[0].x);
 
   return {
@@ -171,6 +189,110 @@ function drawImagePart(context, image, center, width, height, rotation) {
   context.translate(center.x, center.y);
   context.rotate(rotation);
   context.drawImage(image, -width / 2, -height / 2, width, height);
+  context.restore();
+}
+
+function bottomFadedImage(image) {
+  if (fadedImageCache.has(image)) return fadedImageCache.get(image);
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const context = canvas.getContext('2d');
+  context.drawImage(image, 0, 0);
+  context.globalCompositeOperation = 'destination-in';
+  const mask = context.createLinearGradient(0, 0, 0, canvas.height);
+  mask.addColorStop(0, '#000');
+  mask.addColorStop(0.68, '#000');
+  mask.addColorStop(1, 'transparent');
+  context.fillStyle = mask;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  fadedImageCache.set(image, canvas);
+  return canvas;
+}
+
+function alphaCentroid(imageData, width, height, startRatio, endRatio, fallback) {
+  const startY = Math.max(0, Math.floor(height * startRatio));
+  const endY = Math.min(height, Math.ceil(height * endRatio));
+  let weight = 0;
+  let xTotal = 0;
+  let yTotal = 0;
+  for (let y = startY; y < endY; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const alpha = imageData[(y * width + x) * 4 + 3];
+      if (alpha < 24) continue;
+      weight += alpha;
+      xTotal += x * alpha;
+      yTotal += y * alpha;
+    }
+  }
+  return weight ? point(xTotal / weight, yTotal / weight) : fallback;
+}
+
+function maskedLimbSegment(image, splitRatio, upper) {
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const context = canvas.getContext('2d');
+  context.drawImage(image, 0, 0);
+  context.globalCompositeOperation = 'destination-in';
+  const mask = context.createLinearGradient(0, 0, 0, canvas.height);
+  if (upper) {
+    mask.addColorStop(0, '#000');
+    mask.addColorStop(Math.max(0, splitRatio - 0.04), '#000');
+    mask.addColorStop(Math.min(1, splitRatio + 0.04), 'transparent');
+    mask.addColorStop(1, 'transparent');
+  } else {
+    mask.addColorStop(0, 'transparent');
+    mask.addColorStop(Math.max(0, splitRatio - 0.04), 'transparent');
+    mask.addColorStop(Math.min(1, splitRatio + 0.04), '#000');
+    mask.addColorStop(1, '#000');
+  }
+  context.fillStyle = mask;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+function analyzeLimbImage(image) {
+  if (limbSegmentCache.has(image)) return limbSegmentCache.get(image);
+  const source = document.createElement('canvas');
+  source.width = image.naturalWidth;
+  source.height = image.naturalHeight;
+  const context = source.getContext('2d', { willReadFrequently: true });
+  context.drawImage(image, 0, 0);
+  const pixels = context.getImageData(0, 0, source.width, source.height).data;
+  const splitRatio = 0.51;
+  const anchors = [
+    alphaCentroid(pixels, source.width, source.height, 0.02, 0.18, point(source.width * 0.5, source.height * 0.08)),
+    alphaCentroid(pixels, source.width, source.height, 0.43, 0.59, point(source.width * 0.5, source.height * splitRatio)),
+    alphaCentroid(pixels, source.width, source.height, 0.82, 0.99, point(source.width * 0.5, source.height * 0.92)),
+  ];
+  const analysis = {
+    anchors,
+    upper: maskedLimbSegment(image, splitRatio, true),
+    lower: maskedLimbSegment(image, splitRatio, false),
+  };
+  limbSegmentCache.set(image, analysis);
+  return analysis;
+}
+
+function drawLimbSegment(context, image, sourceStart, sourceEnd, targetStart, targetEnd, thicknessScale) {
+  const sourceLength = Math.max(1, distance(sourceStart, sourceEnd));
+  const targetLength = Math.max(1, distance(targetStart, targetEnd));
+  const sourceAxis = point((sourceEnd.x - sourceStart.x) / sourceLength, (sourceEnd.y - sourceStart.y) / sourceLength);
+  const sourcePerpendicular = point(-sourceAxis.y, sourceAxis.x);
+  const targetAxis = point((targetEnd.x - targetStart.x) / targetLength, (targetEnd.y - targetStart.y) / targetLength);
+  const targetPerpendicular = point(-targetAxis.y, targetAxis.x);
+  const lengthScale = targetLength / sourceLength;
+  const crossScale = lengthScale * thicknessScale;
+  const a = targetAxis.x * lengthScale * sourceAxis.x + targetPerpendicular.x * crossScale * sourcePerpendicular.x;
+  const c = targetAxis.x * lengthScale * sourceAxis.y + targetPerpendicular.x * crossScale * sourcePerpendicular.y;
+  const b = targetAxis.y * lengthScale * sourceAxis.x + targetPerpendicular.y * crossScale * sourcePerpendicular.x;
+  const d = targetAxis.y * lengthScale * sourceAxis.y + targetPerpendicular.y * crossScale * sourcePerpendicular.y;
+  const e = targetStart.x - a * sourceStart.x - c * sourceStart.y;
+  const f = targetStart.y - b * sourceStart.x - d * sourceStart.y;
+  context.save();
+  context.transform(a, b, c, d, e, f);
+  context.drawImage(image, 0, 0);
   context.restore();
 }
 
@@ -267,30 +389,36 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     const torsoRotation = rotationBetween(shoulderCenter, hipCenter);
     const down = unitBetween(shoulderCenter, hipCenter);
 
-    const drawLimb = (key, chain, widthScale = 1) => {
+    const drawLimb = (key, chain) => {
       const image = images[key];
       if (!image) return;
-      const start = chain[0];
-      const end = chain[2];
-      const limbLength = clamp(distance(start, end) * 1.08, torsoLength * 0.78, torsoLength * 1.72);
-      const limbWidth = limbLength * (image.naturalWidth / image.naturalHeight) * widthScale;
-      const center = mix(start, end, 0.5);
-      const rotation = rotationBetween(start, end);
-      drawImagePart(context, image, center, limbWidth, limbLength, rotation);
+      const segments = analyzeLimbImage(image);
+      const thicknessScale = key.endsWith('Arm') ? 0.68 : 0.64;
+      drawLimbSegment(context, segments.upper, segments.anchors[0], segments.anchors[1], chain[0], chain[1], thicknessScale);
+      drawLimbSegment(context, segments.lower, segments.anchors[1], segments.anchors[2], chain[1], chain[2], thicknessScale);
+      const center = mix(chain[0], chain[2], 0.5);
+      const rotation = rotationBetween(chain[0], chain[2]);
       addCoordinate(coordinates, key, center, rotation);
     };
 
-    drawLimb('leftLeg', rig.legLeft, 0.84);
-    drawLimb('rightLeg', rig.legRight, 0.84);
-    drawLimb('leftArm', rig.armLeft, 0.88);
-    drawLimb('rightArm', rig.armRight, 0.88);
+    drawLimb('leftLeg', rig.legLeft);
+    drawLimb('rightLeg', rig.legRight);
+    drawLimb('leftArm', rig.armLeft);
+    drawLimb('rightArm', rig.armRight);
 
     if (images.top) {
       const topHeight = torsoLength * 1.20;
-      const topWidth = topHeight * images.top.naturalWidth / images.top.naturalHeight;
+      const topWidth = topHeight * images.top.naturalWidth / images.top.naturalHeight * 1.08;
       const center = mix(shoulderCenter, hipCenter, 0.48);
       drawImagePart(context, images.top, center, topWidth, topHeight, torsoRotation);
       addCoordinate(coordinates, 'top', center, torsoRotation);
+    }
+    if (images.neckTop) {
+      const neckWidth = shoulderWidth * 1.20;
+      const neckHeight = neckWidth * images.neckTop.naturalHeight / images.neckTop.naturalWidth;
+      const center = point(shoulderCenter.x + down.x * neckHeight * 0.12, shoulderCenter.y + down.y * neckHeight * 0.12);
+      drawImagePart(context, bottomFadedImage(images.neckTop), center, neckWidth, neckHeight, torsoRotation);
+      addCoordinate(coordinates, 'neckTop', center, torsoRotation);
     }
     if (images.bottom) {
       const bottomWidth = Math.max(shoulderWidth * 0.96, distance(rig.hipLeft, rig.hipRight) * 1.38);
@@ -299,14 +427,8 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
       drawImagePart(context, images.bottom, center, bottomWidth, bottomHeight, torsoRotation);
       addCoordinate(coordinates, 'bottom', center, torsoRotation);
     }
-    if (images.neckTop) {
-      const neckWidth = shoulderWidth * 1.34;
-      const neckHeight = neckWidth * images.neckTop.naturalHeight / images.neckTop.naturalWidth;
-      const center = point(shoulderCenter.x + down.x * neckHeight * 0.02, shoulderCenter.y + down.y * neckHeight * 0.02);
-      drawImagePart(context, images.neckTop, center, neckWidth, neckHeight, torsoRotation);
-      addCoordinate(coordinates, 'neckTop', center, torsoRotation);
-    }
-
+    const coordinateOrder = ['neckTop', 'top', 'bottom', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg'];
+    coordinates.sort((a, b) => coordinateOrder.indexOf(a.key) - coordinateOrder.indexOf(b.key));
     emitCoordinates(coordinates, forceCoordinates);
   }
 
