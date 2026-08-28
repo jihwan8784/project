@@ -1,0 +1,114 @@
+- main [ref=f4e2]:
+  - region "실시간 아바타 트래킹" [ref=f4e3]:
+    - generic [ref=f4e4]:
+      - region "실시간 아바타 화면" [ref=f4e5]:
+        - paragraph [ref=f4e6]: AVATAR
+        - generic:
+          - paragraph [ref=f4e7]: 카메라와 Pose Lite 준비 중
+          - generic [ref=f4e8]:
+            - button "설정" [ref=f4e9] [cursor=pointer]
+            - button "사진 캡처" [ref=f4e10] [cursor=pointer]
+            - button "Google Drive 연결" [disabled] [ref=f4e11]
+            - button "Drive에 저장" [disabled] [ref=f4e12]
+            - button "추적 중지" [disabled] [ref=f4e13]
+          - paragraph [ref=f4e14]: GOOGLE_CLIENT_ID가 설정되지 않았습니다.
+      - complementary [ref=f4e15]:
+        - generic [ref=f4e16]:
+          - paragraph [ref=f4e17]: POSE VISION · AVATAR OPTION
+          - heading "아바타 조합" [level=1] [ref=f4e18]
+          - paragraph [ref=f4e19]: 직업군 · 요리사 · 남성 요리사 이미지 적용
+        - generic [ref=f4e20]:
+          - generic [ref=f4e21]:
+            - generic [ref=f4e22]: 성별
+            - combobox "성별" [ref=f4e23]:
+              - option "남성" [selected]
+              - option "여성"
+          - generic [ref=f4e24]:
+            - generic [ref=f4e25]: 연령대
+            - combobox "연령대" [ref=f4e26]:
+              - option "10~20대" [selected]
+              - option "30대"
+              - option "40~50대"
+          - generic [ref=f4e27]:
+            - generic [ref=f4e28]: 체형
+            - combobox "체형" [ref=f4e29]:
+              - option "슬림형"
+              - option "표준형" [selected]
+              - option "근육형"
+          - generic [ref=f4e30]:
+            - generic [ref=f4e31]: 직업군
+            - combobox "직업군" [ref=f4e32]:
+              - option "학생"
+              - option "드론 조종사"
+              - option "우주 비행사"
+              - option "해커"
+              - option "교사"
+              - option "의사"
+              - option "간호사"
+              - option "경찰"
+              - option "소방관"
+              - option "요리사" [selected]
+              - option "가수"
+          - generic [ref=f4e33]:
+            - generic [ref=f4e34]: 배경
+            - combobox "배경" [ref=f4e35]:
+              - option "네온 미래 도시" [selected]
+              - option "우주정거장"
+              - option "연구소"
+              - option "비 내리는 네온 거리"
+          - generic [ref=f4e36]:
+            - generic [ref=f4e37]: 테마
+            - combobox "테마" [ref=f4e38]:
+              - option "사이버펑크" [selected]
+              - option "메카"
+          - generic [ref=f4e39]:
+            - generic [ref=f4e40]: 헤어스타일
+            - combobox "헤어스타일" [ref=f4e41]:
+              - option "짧은 머리" [selected]
+              - option "긴 머리"
+        - region [ref=f4e42]:
+          - generic [ref=f4e43]:
+            - heading "부위별 좌표" [level=2] [ref=f4e44]
+            - generic [ref=f4e45]: 관절 기준
+          - table "아바타 이미지 부위별 좌표" [ref=f4e46]:
+            - row [ref=f4e47]:
+              - columnheader "부위" [ref=f4e48]
+              - columnheader "X" [ref=f4e49]
+              - columnheader "Y" [ref=f4e50]
+              - columnheader "Z" [ref=f4e51]
+            - generic [ref=f4e52]:
+              - row [ref=f4e89]:
+                - cell "목/어깨" [ref=f4e90]
+                - cell "0.00" [ref=f4e91]
+                - cell "0.40" [ref=f4e92]
+                - cell "0.55" [ref=f4e93]
+              - row [ref=f4e94]:
+                - cell "앞치마 상체" [ref=f4e95]
+                - cell "0.00" [ref=f4e96]
+                - cell "0.02" [ref=f4e97]
+                - cell "0.54" [ref=f4e98]
+              - row [ref=f4e99]:
+                - cell "앞치마 하체" [ref=f4e100]
+                - cell "0.00" [ref=f4e101]
+                - cell "-0.53" [ref=f4e102]
+                - cell "0.56" [ref=f4e103]
+              - row [ref=f4e104]:
+                - cell "왼팔" [ref=f4e105]
+                - cell "0.13" [ref=f4e106]
+                - cell "-0.05" [ref=f4e107]
+                - cell "0.57" [ref=f4e108]
+              - row [ref=f4e109]:
+                - cell "오른팔" [ref=f4e110]
+                - cell "-0.13" [ref=f4e111]
+                - cell "-0.05" [ref=f4e112]
+                - cell "0.57" [ref=f4e113]
+              - row [ref=f4e114]:
+                - cell "왼발" [ref=f4e115]
+                - cell "0.00" [ref=f4e116]
+                - cell "0.00" [ref=f4e117]
+                - cell "0.55" [ref=f4e118]
+              - row [ref=f4e119]:
+                - cell "오른발" [ref=f4e120]
+                - cell "0.00" [ref=f4e121]
+                - cell "0.00" [ref=f4e122]
+                - cell "0.55" [ref=f4e123]

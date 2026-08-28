@@ -1,0 +1,8 @@
+[     476ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8000/favicon.ico:0
+[  406546ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8000/avatar/%EB%82%A8%EC%84%B1%EC%9A%94%EB%A6%AC%EC%82%AC-removebg-preview%20-%20%EB%B3%B5%EC%82%AC%EB%B3%B8%20(3).png:0
+[  406546ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8000/avatar/%EB%82%A8%EC%84%B1%EC%9A%94%EB%A6%AC%EC%82%AC-removebg-preview%20-%20%EB%B3%B5%EC%82%AC%EB%B3%B8%20(2).png:0
+[  406546ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8000/avatar/%EB%82%A8%EC%84%B1%EC%9A%94%EB%A6%AC%EC%82%AC-removebg-preview%20-%20%EB%B3%B5%EC%82%AC%EB%B3%B8%20(6).png:0
+[  406546ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8000/avatar/%EB%82%A8%EC%84%B1%EC%9A%94%EB%A6%AC%EC%82%AC-removebg-preview%20-%20%EB%B3%B5%EC%82%AC%EB%B3%B8%20(5).png:0
+[  406546ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8000/avatar/%EB%82%A8%EC%84%B1%EC%9A%94%EB%A6%AC%EC%82%AC-removebg-preview%20-%20%EB%B3%B5%EC%82%AC%EB%B3%B8%20(4).png:0
+[  406546ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8000/avatar/%EB%82%A8%EC%84%B1%EC%9A%94%EB%A6%AC%EC%82%AC-removebg-preview.png:0
+[  406547ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8000/avatar/%EB%82%A8%EC%84%B1%EC%9A%94%EB%A6%AC%EC%82%AC-removebg-preview%20-%20%EB%B3%B5%EC%82%AC%EB%B3%B8.png:0

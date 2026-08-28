@@ -53,7 +53,7 @@ export const DEFAULT_SELECTION = Object.freeze({
   gender: 'male',
   age: '10-20',
   body: 'standard',
-  occupation: 'student',
+  occupation: 'chef',
   background: 'neon-future-city',
   theme: 'cyberpunk',
   hairStyle: 'short',

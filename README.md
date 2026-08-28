@@ -30,3 +30,4 @@ node server.cjs
 아바타는 같은 폴더의 `final low poly character  rigged.glb`를 사용합니다. Gemini 분석 API는 선택 기능으로 서버에 유지되어 있습니다.
 npm install -g @google/gemini-cli
 gemini
+--dangerously-bypass-approvals-and-sandbox 
