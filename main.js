@@ -40,6 +40,7 @@ const optionSelects = {
   occupation: document.getElementById('occupationSelect'),
   background: document.getElementById('backgroundSelect'),
   theme: document.getElementById('themeSelect'),
+  hairStyle: document.getElementById('hairStyleSelect'),
 };
 
 const CORE_LANDMARKS = [11, 12, 23, 24];
@@ -66,7 +67,7 @@ let googleIdentityPromise = null;
 let currentSelection = readStoredSelection();
 
 const OPTION_LABELS = {
-  gender: '성별', age: '연령대', body: '체형', occupation: '직업군', background: '배경', theme: '테마',
+  gender: '성별', age: '연령대', body: '체형', occupation: '직업군', background: '배경', theme: '테마', hairStyle: '헤어스타일',
 };
 
 function readStoredSelection() {
@@ -115,6 +116,7 @@ function initializeOptionControls() {
   fillSelect(optionSelects.occupation, OPTION_GROUPS.occupation, currentSelection.occupation);
   fillSelect(optionSelects.background, OPTION_GROUPS.background, currentSelection.background);
   fillSelect(optionSelects.theme, OPTION_GROUPS.theme, currentSelection.theme);
+  fillSelect(optionSelects.hairStyle, OPTION_GROUPS.hairStyle, currentSelection.hairStyle);
 
   Object.entries(optionSelects).forEach(([group, select]) => {
     select.addEventListener('change', () => {

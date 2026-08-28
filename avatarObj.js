@@ -1,7 +1,4 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js';
-import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/loaders/GLTFLoader.js';
-
-const MODEL_URL = new URL('./final low poly character  rigged.glb', import.meta.url).href;
 
 export const DEFAULT_AVATAR_OPTIONS = Object.freeze({
   skinColor: '#d99a78',
@@ -193,6 +190,13 @@ function restoreBoneTowardRest(bone, influence = 0.08) {
   bone.quaternion.slerp(rest, influence);
 }
 
+function lockBoneAtRest(bone) {
+  const rest = bone?.userData?.poseVisionRestLocalQuaternion;
+  if (!bone || !rest) return;
+  bone.quaternion.copy(rest);
+  bone.updateMatrixWorld(true);
+}
+
 function makeMaterial(color, roughness = 0.72, metalness = 0.08, emissive = '#000000', emissiveIntensity = 0) {
   return new THREE.MeshStandardMaterial({
     color,
@@ -211,6 +215,179 @@ function addBox(group, position, scale, material) {
   mesh.receiveShadow = true;
   group.add(mesh);
   return mesh;
+}
+
+function makeAvatarMaterial(color, options, accent = false) {
+  return makeMaterial(
+    color,
+    options.theme === 'mecha' ? 0.34 : 0.68,
+    options.theme === 'mecha' ? 0.5 : 0.08,
+    accent ? options.accentColor : '#000000',
+    accent ? 0.22 : 0,
+  );
+}
+
+function makePart(geometry, material, name) {
+  const part = new THREE.Mesh(geometry, material);
+  part.name = name;
+  part.castShadow = true;
+  part.receiveShadow = true;
+  return part;
+}
+
+// Every visible body section has its own anchor.  Limb anchors point from a
+// joint to the next joint, so pose tracking only rotates that one section.
+function createSegment(name, length, radius, material, endRadius = radius * 1.06) {
+  const anchor = new THREE.Group();
+  anchor.name = `${name}Anchor`;
+  const segment = makePart(
+    // More radial detail keeps the limbs softly rounded, even when they bend.
+    new THREE.CapsuleGeometry(radius, Math.max(0.02, length - radius * 2), 8, 16),
+    material,
+    name,
+  );
+  segment.position.y = -length / 2;
+  anchor.add(segment);
+  const end = new THREE.Group();
+  end.name = `${name}End`;
+  end.position.y = -length;
+  anchor.add(end);
+  anchor.userData.poseVisionRestLocalQuaternion = anchor.quaternion.clone();
+  return { anchor, end, length, endRadius };
+}
+
+function setAnchorRestDirection(anchor) {
+  anchor.updateWorldMatrix(true, false);
+  anchor.userData.poseVisionRestWorldQuaternion = anchor.getWorldQuaternion(new THREE.Quaternion()).clone();
+  anchor.userData.poseVisionRestWorldDirection = new THREE.Vector3(0, -1, 0)
+    .applyQuaternion(anchor.userData.poseVisionRestWorldQuaternion)
+    .normalize();
+}
+
+function disposeGroup(group) {
+  group.traverse(object => {
+    object.geometry?.dispose?.();
+    if (Array.isArray(object.material)) object.material.forEach(material => material.dispose?.());
+    else object.material?.dispose?.();
+  });
+}
+
+function buildPartAvatar(options) {
+  const avatar = new THREE.Group();
+  avatar.name = 'PartAvatar';
+  const skin = makeAvatarMaterial(options.skinColor, options);
+  const clothing = makeAvatarMaterial(options.topColor, options);
+  const bottoms = makeAvatarMaterial(options.bottomColor, options);
+  const shoes = makeAvatarMaterial(options.shoeColor, options);
+  const accent = makeAvatarMaterial(options.accentColor, options, true);
+  const hair = makeAvatarMaterial(options.hairColor, options);
+  const bodyWidth = options.bodyVariant === 'slim' ? 0.68 : options.bodyVariant === 'muscular' ? 0.92 : options.bodyVariant === 'volume' ? 0.88 : 0.79;
+  const limbRadius = options.bodyVariant === 'slim' ? 0.105 : options.bodyVariant === 'muscular' ? 0.15 : 0.125;
+
+  // Face and torso are independent parts. Their positions are skeleton anchors.
+  const torsoAnchor = new THREE.Group();
+  torsoAnchor.name = 'torsoAnchor';
+  torsoAnchor.position.set(0, 1.05, 0);
+  avatar.add(torsoAnchor);
+  const torso = makePart(new THREE.CapsuleGeometry(bodyWidth / 2, 0.72, 10, 20), clothing, 'torso');
+  torso.scale.z = 0.68;
+  torsoAnchor.add(torso);
+  const neck = new THREE.Group();
+  neck.position.y = 0.72;
+  torsoAnchor.add(neck);
+  const faceAnchor = new THREE.Group();
+  faceAnchor.name = 'faceAnchor';
+  faceAnchor.position.y = 0.22;
+  neck.add(faceAnchor);
+  const face = makePart(new THREE.SphereGeometry(0.34 * Number(options.headScale || 1), 18, 14), skin, 'face');
+  face.scale.z = 0.84;
+  faceAnchor.add(face);
+  const hairCap = makePart(new THREE.SphereGeometry(0.35 * Number(options.headScale || 1), 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), hair, 'hair');
+  hairCap.scale.z = 0.87;
+  hairCap.position.y = 0.08;
+  faceAnchor.add(hairCap);
+  if (options.hairStyle === 'long') {
+    // Rounded strands show the length while leaving the face unobstructed.
+    const addLongHairStrand = (name, x, y, z, radius, length) => {
+      const strand = makePart(new THREE.CapsuleGeometry(radius, length, 8, 16), hair, name);
+      strand.position.set(x, y, z);
+      faceAnchor.add(strand);
+    };
+    addLongHairStrand('longHairBack', 0, -0.22, -0.18, 0.22, 0.34);
+    addLongHairStrand('longHairLeft', -0.28, -0.22, 0.01, 0.09, 0.32);
+    addLongHairStrand('longHairRight', 0.28, -0.22, 0.01, 0.09, 0.32);
+  }
+  [-0.12, 0.12].forEach(x => {
+    const eye = makePart(new THREE.SphereGeometry(0.032, 8, 6), makeAvatarMaterial(options.eyeColor, options), 'eye');
+    eye.position.set(x, 0.015, 0.292);
+    faceAnchor.add(eye);
+  });
+
+  const rig = { torso: torsoAnchor, face: faceAnchor };
+  const addArm = (side, x) => {
+    const shoulder = new THREE.Group();
+    shoulder.name = `${side}ShoulderAnchor`;
+    shoulder.position.set(x, 0.48, 0);
+    torsoAnchor.add(shoulder);
+    const upper = createSegment(`${side}UpperArm`, 0.48, limbRadius, clothing);
+    shoulder.add(upper.anchor);
+    const lower = createSegment(`${side}Forearm`, 0.42, limbRadius * 0.9, skin);
+    // Overlap the rounded ends slightly so the arm reads as one continuous form,
+    // rather than a pair of pieces joined by a visible elbow ball.
+    lower.anchor.position.y = limbRadius * 0.45;
+    upper.end.add(lower.anchor);
+    rig[`${side}UpperArm`] = upper.anchor;
+    rig[`${side}Forearm`] = lower.anchor;
+  };
+  addArm('left', -bodyWidth * 0.58);
+  addArm('right', bodyWidth * 0.58);
+
+  const addLeg = (side, x) => {
+    const hip = new THREE.Group();
+    hip.name = `${side}HipAnchor`;
+    hip.position.set(x, -0.43, 0);
+    torsoAnchor.add(hip);
+    // Four leg segments total: two thighs and two shins.
+    const thigh = createSegment(`${side}Thigh`, 0.58, limbRadius * 1.18, bottoms);
+    hip.add(thigh.anchor);
+    const shin = createSegment(`${side}Shin`, 0.53, limbRadius, bottoms);
+    // As with the arms, make the leg a continuous tapered silhouette with no
+    // separate knee mesh protruding from it.
+    shin.anchor.position.y = limbRadius * 0.50;
+    thigh.end.add(shin.anchor);
+    // A scaled sphere gives the shoe a rounded silhouette instead of hard box corners.
+    const foot = makePart(new THREE.SphereGeometry(1, 16, 12), shoes, `${side}Foot`);
+    foot.scale.set(limbRadius * 1.18, limbRadius * 0.58, 0.21);
+    // The shin end is already at the ankle; offset only by half the shoe height.
+    foot.position.set(0, -limbRadius * 0.58, 0.12);
+    foot.castShadow = foot.receiveShadow = true;
+    shin.end.add(foot);
+    rig[`${side}Thigh`] = thigh.anchor;
+    rig[`${side}Shin`] = shin.anchor;
+  };
+  addLeg('left', -bodyWidth * 0.24);
+  addLeg('right', bodyWidth * 0.24);
+
+  if (options.occupation === 'astronaut') {
+    const visor = makePart(new THREE.SphereGeometry(0.37, 16, 10), makeAvatarMaterial('#87dfff', options, true), 'visor');
+    visor.scale.set(0.92, 0.48, 0.25);
+    visor.position.set(0, 0.02, 0.3);
+    faceAnchor.add(visor);
+  } else if (options.occupation === 'teacher' || options.accessoryStyle === 'glasses') {
+    [-0.12, 0.12].forEach(x => {
+      const glass = makePart(new THREE.TorusGeometry(0.075, 0.012, 6, 10), accent, 'glasses');
+      glass.position.set(x, 0.015, 0.325);
+      faceAnchor.add(glass);
+    });
+  } else if (options.occupation === 'firefighter') {
+    const helmet = makePart(new THREE.CylinderGeometry(0.37, 0.37, 0.13, 14), accent, 'helmet');
+    helmet.position.y = 0.29;
+    faceAnchor.add(helmet);
+  }
+
+  avatar.updateMatrixWorld(true);
+  Object.values(rig).forEach(setAnchorRestDirection);
+  return { avatar, rig };
 }
 
 function addBackdrop(group, color) {
@@ -316,7 +493,6 @@ function buildEnvironment(style) {
 
 export function create2DAvatar(container, initialOptions = {}, runtimeOptions = {}) {
   const options = { ...DEFAULT_AVATAR_OPTIONS, ...initialOptions };
-  const loader = new GLTFLoader();
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#050914');
 
@@ -364,7 +540,6 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
   let loaded = false;
   let rig = null;
   let model = null;
-  let modelBaseScale = 1;
   let frameId = null;
   let latestPoseInput = null;
   let poseTargets = null;
@@ -452,29 +627,26 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
   function updateRigFromPose(targets) {
     if (!rig || !targets) return;
 
-    setBoneDirection3D(rig.upperArmL, targets.upperArmL, 0.40);
-    setBoneDirection3D(rig.forearmL, targets.forearmL, 0.46);
-    setBoneDirection3D(rig.handL, targets.handL, 0.34);
-    setBoneDirection3D(rig.upperArmR, targets.upperArmR, 0.40);
-    setBoneDirection3D(rig.forearmR, targets.forearmR, 0.46);
-    setBoneDirection3D(rig.handR, targets.handR, 0.34);
+    setBoneDirection3D(rig.leftUpperArm, targets.upperArmL, 0.40);
+    setBoneDirection3D(rig.leftForearm, targets.forearmL, 0.46);
+    setBoneDirection3D(rig.rightUpperArm, targets.upperArmR, 0.40);
+    setBoneDirection3D(rig.rightForearm, targets.forearmR, 0.46);
 
-    setBoneDirection3D(rig.thighL, targets.thighL, 0.38);
-    setBoneDirection3D(rig.shinL, targets.shinL, 0.44);
-    setBoneDirection3D(rig.footL, targets.footL, 0.32);
-    setBoneDirection3D(rig.thighR, targets.thighR, 0.38);
-    setBoneDirection3D(rig.shinR, targets.shinR, 0.44);
-    setBoneDirection3D(rig.footR, targets.footR, 0.32);
+    setBoneDirection3D(rig.leftThigh, targets.thighL, 0.38);
+    setBoneDirection3D(rig.leftShin, targets.shinL, 0.44);
+    setBoneDirection3D(rig.rightThigh, targets.thighR, 0.38);
+    setBoneDirection3D(rig.rightShin, targets.shinR, 0.44);
 
-    // 추적이 불완전한 관절은 갑자기 0도로 튀지 않고 천천히 기본 자세로 복귀한다.
-    if (!targets.upperArmL) restoreBoneTowardRest(rig.upperArmL);
-    if (!targets.forearmL) restoreBoneTowardRest(rig.forearmL);
-    if (!targets.upperArmR) restoreBoneTowardRest(rig.upperArmR);
-    if (!targets.forearmR) restoreBoneTowardRest(rig.forearmR);
-    if (!targets.thighL) restoreBoneTowardRest(rig.thighL);
-    if (!targets.shinL) restoreBoneTowardRest(rig.shinL);
-    if (!targets.thighR) restoreBoneTowardRest(rig.thighR);
-    if (!targets.shinR) restoreBoneTowardRest(rig.shinR);
+    // Arms ease back to rest when tracking is incomplete. Legs stay in their
+    // neutral standing pose whenever their landmarks are unavailable.
+    if (!targets.upperArmL) restoreBoneTowardRest(rig.leftUpperArm);
+    if (!targets.forearmL) restoreBoneTowardRest(rig.leftForearm);
+    if (!targets.upperArmR) restoreBoneTowardRest(rig.rightUpperArm);
+    if (!targets.forearmR) restoreBoneTowardRest(rig.rightForearm);
+    if (!targets.thighL) lockBoneAtRest(rig.leftThigh);
+    if (!targets.shinL) lockBoneAtRest(rig.leftShin);
+    if (!targets.thighR) lockBoneAtRest(rig.rightThigh);
+    if (!targets.shinR) lockBoneAtRest(rig.rightShin);
 
     root.rotation.z += (targets.bodyTilt * 0.26 - root.rotation.z) * 0.12;
     root.rotation.x += (targets.depthLean * 0.32 - root.rotation.x) * 0.12;
@@ -495,7 +667,25 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     frameId = requestAnimationFrame(renderFrame);
   }
 
-  async function loadModel() {
+  function loadModel() {
+    if (model) {
+      root.remove(model);
+      disposeGroup(model);
+    }
+    const partAvatar = buildPartAvatar(options);
+    model = partAvatar.avatar;
+    // The part rig is designed in readable joint units. Scale it, then use its
+    // actual bounds to place the soles on the floor for every body type.
+    model.scale.setScalar(0.70);
+    model.updateMatrixWorld(true);
+    const modelBounds = new THREE.Box3().setFromObject(model);
+    model.position.y = -modelBounds.min.y;
+    rig = partAvatar.rig;
+    root.add(model);
+    loaded = true;
+    if (latestPoseInput) poseTargets = makePoseTargets(latestPoseInput);
+    return;
+    /* Legacy GLB loader retained below temporarily for reference.
     try {
       const gltf = await loader.loadAsync(MODEL_URL);
       if (disposed) return;
@@ -550,6 +740,8 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
       loaded = false;
     }
   }
+    */
+  }
 
   function applyPose(result) {
     // 모델 로딩 전에 들어온 포즈도 버리지 않고 기억했다가 로딩 직후 적용한다.
@@ -563,6 +755,7 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     Object.assign(options, nextOptions);
     root.scale.setScalar(Number(options.heightScale || 1));
     if (options.backgroundStyle !== currentBackgroundStyle) rebuildEnvironment();
+    loadModel();
   }
 
   function capture(filename = 'pose-vision-avatar.png') {

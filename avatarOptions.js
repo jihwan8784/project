@@ -43,6 +43,10 @@ export const OPTION_GROUPS = Object.freeze({
     { value: 'cyberpunk', label: '사이버펑크' },
     { value: 'mecha', label: '메카' },
   ],
+  hairStyle: [
+    { value: 'short', label: '짧은 머리' },
+    { value: 'long', label: '긴 머리' },
+  ],
 });
 
 export const DEFAULT_SELECTION = Object.freeze({
@@ -52,6 +56,7 @@ export const DEFAULT_SELECTION = Object.freeze({
   occupation: 'student',
   background: 'neon-future-city',
   theme: 'cyberpunk',
+  hairStyle: 'short',
 });
 
 const THEME_STYLES = {
@@ -77,6 +82,7 @@ export function normalizeSelection(value = {}) {
   if (!includes('occupation', selection.occupation)) selection.occupation = DEFAULT_SELECTION.occupation;
   if (!includes('background', selection.background)) selection.background = DEFAULT_SELECTION.background;
   if (!includes('theme', selection.theme)) selection.theme = DEFAULT_SELECTION.theme;
+  if (!includes('hairStyle', selection.hairStyle)) selection.hairStyle = DEFAULT_SELECTION.hairStyle;
   const bodies = OPTION_GROUPS.bodyByGender[selection.gender];
   if (!bodies.some(item => item.value === selection.body)) selection.body = 'standard';
   return selection;
@@ -96,7 +102,7 @@ export function selectionToAppearance(selectionValue) {
     occupation: selection.occupation,
     backgroundStyle: selection.background,
     theme: selection.theme,
-    hairStyle: selection.gender === 'female' ? 'wave' : 'crop',
+    hairStyle: selection.hairStyle,
     outfitStyle: selection.occupation === 'singer' ? 'idol' : 'casual',
     headScale: ageHeadScale,
     accessoryStyle: selection.occupation === 'drone-pilot'
