@@ -140,14 +140,18 @@ function buildPoliceRig(model) {
   return {
     torso: find('Hips'),
     face: find('Head'),
-    leftUpperArm: find('RightUpperArm'),
-    leftForearm: find('RightForearm'),
-    rightUpperArm: find('LeftUpperArm'),
-    rightForearm: find('LeftForearm'),
-    leftThigh: find('RightThigh'),
-    leftShin: find('RightShin'),
-    rightThigh: find('LeftThigh'),
-    rightShin: find('LeftShin'),
+    leftUpperArm: find('LeftUpperArm'),
+    leftForearm: find('LeftForearm'),
+    leftHand: find('LeftHand'),
+    rightUpperArm: find('RightUpperArm'),
+    rightForearm: find('RightForearm'),
+    rightHand: find('RightHand'),
+    leftThigh: find('LeftThigh'),
+    leftShin: find('LeftShin'),
+    leftFoot: find('LeftFoot'),
+    rightThigh: find('RightThigh'),
+    rightShin: find('RightShin'),
+    rightFoot: find('RightFoot'),
   };
 }
 
@@ -787,24 +791,32 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
 
     setBoneDirection3D(rig.leftUpperArm, targets.upperArmL, 0.84);
     setBoneDirection3D(rig.leftForearm, targets.forearmL, 0.88);
+    setBoneDirection3D(rig.leftHand, targets.handL, 0.82);
     setBoneDirection3D(rig.rightUpperArm, targets.upperArmR, 0.84);
     setBoneDirection3D(rig.rightForearm, targets.forearmR, 0.88);
+    setBoneDirection3D(rig.rightHand, targets.handR, 0.82);
 
     setBoneDirection3D(rig.leftThigh, targets.thighL, 0.80);
     setBoneDirection3D(rig.leftShin, targets.shinL, 0.84);
+    setBoneDirection3D(rig.leftFoot, targets.footL, 0.78);
     setBoneDirection3D(rig.rightThigh, targets.thighR, 0.80);
     setBoneDirection3D(rig.rightShin, targets.shinR, 0.84);
+    setBoneDirection3D(rig.rightFoot, targets.footR, 0.78);
 
     // Arms ease back to rest when tracking is incomplete. Legs stay in their
     // neutral standing pose whenever their landmarks are unavailable.
     if (!targets.upperArmL) restoreBoneTowardRest(rig.leftUpperArm);
     if (!targets.forearmL) restoreBoneTowardRest(rig.leftForearm);
+    if (!targets.handL) restoreBoneTowardRest(rig.leftHand);
     if (!targets.upperArmR) restoreBoneTowardRest(rig.rightUpperArm);
     if (!targets.forearmR) restoreBoneTowardRest(rig.rightForearm);
+    if (!targets.handR) restoreBoneTowardRest(rig.rightHand);
     if (!targets.thighL) lockBoneAtRest(rig.leftThigh);
     if (!targets.shinL) lockBoneAtRest(rig.leftShin);
+    if (!targets.footL) lockBoneAtRest(rig.leftFoot);
     if (!targets.thighR) lockBoneAtRest(rig.rightThigh);
     if (!targets.shinR) lockBoneAtRest(rig.rightShin);
+    if (!targets.footR) lockBoneAtRest(rig.rightFoot);
 
     root.rotation.z += (targets.bodyTilt * 0.82 - root.rotation.z) * 0.42;
     root.rotation.x += (targets.depthLean * 0.76 - root.rotation.x) * 0.40;
@@ -823,8 +835,10 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
 
   function restoreNeutralPose() {
     if (!rig) return;
-    [rig.leftUpperArm, rig.leftForearm, rig.rightUpperArm, rig.rightForearm,
-      rig.leftThigh, rig.leftShin, rig.rightThigh, rig.rightShin]
+    [rig.leftUpperArm, rig.leftForearm, rig.leftHand,
+      rig.rightUpperArm, rig.rightForearm, rig.rightHand,
+      rig.leftThigh, rig.leftShin, rig.leftFoot,
+      rig.rightThigh, rig.rightShin, rig.rightFoot]
       .forEach(bone => restoreBoneTowardRest(bone, 0.14));
     root.rotation.x += (0 - root.rotation.x) * 0.14;
     root.rotation.z += (0 - root.rotation.z) * 0.14;

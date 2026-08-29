@@ -1,5 +1,6 @@
 import bpy
 import bmesh
+import math
 from mathutils import Vector
 from pathlib import Path
 
@@ -16,7 +17,7 @@ body = next(obj for obj in bpy.context.scene.objects if obj.type == "MESH")
 mesh = body.data
 bm = bmesh.new()
 bm.from_mesh(mesh)
-remove = [vertex for vertex in bm.verts if vertex.co.x > -0.48]
+remove = [vertex for vertex in bm.verts if vertex.co.x > -0.32]
 bmesh.ops.delete(bm, geom=remove, context="VERTS")
 bm.to_mesh(mesh)
 bm.free()
@@ -49,29 +50,8 @@ decimate.ratio = 0.48
 decimate.use_collapse_triangulate = True
 bpy.ops.object.modifier_apply(modifier=decimate.name)
 
-# Add only a short neck finish because the supplied uniform mesh ends at the
-# collar. No visible head or facial geometry is included for now.
-def add_primitive(operator, name, location, scale_value):
-    operator(location=location)
-    obj = bpy.context.object
-    obj.name = name
-    obj.scale = scale_value
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    return obj
-
-neck = add_primitive(
-    lambda **kwargs: bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=0.112, depth=0.30, **kwargs),
-    "PoliceNeck",
-    (0, 0, 1.68),
-    (1, 1, 1),
-)
-
-bpy.ops.object.select_all(action="DESELECT")
-for obj in (body, neck):
-    obj.select_set(True)
-bpy.context.view_layer.objects.active = body
-bpy.ops.object.join()
-body = bpy.context.object
+# Keep only the supplied uniform body. Head, face, hair, and neck connector
+# geometry are intentionally omitted.
 body.name = "FemalePoliceBody"
 
 # Generate UVs and normals on the completed mesh.
@@ -109,7 +89,7 @@ for material in (uniform, dark, skin, accent):
 for polygon in body.data.polygons:
     center = polygon.center
     abs_x = abs(center.x)
-    if center.z > 1.68 or (abs_x > 0.34 and 0.68 < center.z < 1.25):
+    if center.z > 1.68 or (abs_x > 0.40 and 0.70 < center.z < 0.92):
         polygon.material_index = 2
     elif center.z < 0.28 or (0.65 < center.z < 0.86):
         polygon.material_index = 1
@@ -153,35 +133,79 @@ bpy.ops.object.mode_set(mode="OBJECT")
 
 # Deterministic region weights avoid unreliable automatic heat weighting on the
 # disconnected clothing accessories in the source mesh.
-bone_names = [bone.name for bone in armature.data.bones]
-groups = {name: body.vertex_groups.new(name=name) for name in bone_names}
-for vertex in body.data.vertices:
-    x, _, z = vertex.co
+def region_for_position(x, z):
     side = "Left" if x >= 0 else "Right"
     abs_x = abs(x)
     if z > 1.74:
-        target = "Head"
-    elif z > 1.48 and abs_x < 0.26:
-        target = "Neck"
-    elif abs_x > 0.26 and z > 1.18:
-        target = f"{side}UpperArm"
-    elif abs_x > 0.34 and z > 0.91:
-        target = f"{side}Forearm"
-    elif abs_x > 0.38 and z > 0.72:
-        target = f"{side}Hand"
-    elif z > 1.20:
-        target = "Chest"
-    elif z > 0.92:
-        target = "Spine"
-    elif z > 0.78 and abs_x < 0.29:
-        target = "Hips"
-    elif z > 0.49:
-        target = f"{side}Thigh"
-    elif z > 0.14:
-        target = f"{side}Shin"
-    else:
-        target = f"{side}Foot"
-    groups[target].add([vertex.index], 1.0, "REPLACE")
+        return "Head"
+    if z > 1.48 and abs_x < 0.26:
+        return "Neck"
+    if abs_x > 0.25 and 1.18 < z < 1.54:
+        return f"{side}UpperArm"
+    if abs_x > 0.29 and 0.91 < z <= 1.18:
+        return f"{side}Forearm"
+    if abs_x > 0.32 and 0.70 < z <= 0.91:
+        return f"{side}Hand"
+    if z > 1.20:
+        return "Chest"
+    if z > 0.92:
+        return "Spine"
+    if z > 0.78 and abs_x < 0.29:
+        return "Hips"
+    if z > 0.49:
+        return f"{side}Thigh"
+    if z > 0.14:
+        return f"{side}Shin"
+    return f"{side}Foot"
+
+bone_names = [bone.name for bone in armature.data.bones]
+groups = {
+    name: body.vertex_groups.get(name) or body.vertex_groups.new(name=name)
+    for name in bone_names
+}
+all_vertex_indices = list(range(len(body.data.vertices)))
+for group in groups.values():
+    group.remove(all_vertex_indices)
+
+def distance_to_bone(point, bone_name):
+    item = armature.data.bones[bone_name]
+    start = item.head_local
+    segment = item.tail_local - start
+    length_squared = segment.length_squared
+    if length_squared < 1e-8:
+        return (point - start).length
+    amount = max(0.0, min(1.0, (point - start).dot(segment) / length_squared))
+    return (point - (start + segment * amount)).length
+
+def candidate_bones(point):
+    side = "Left" if point.x >= 0 else "Right"
+    abs_x = abs(point.x)
+    if point.z > 0.68 and abs_x > 0.22:
+        return [
+            "Chest", f"{side}Shoulder", f"{side}UpperArm",
+            f"{side}Forearm", f"{side}Hand",
+        ]
+    if point.z < 0.92:
+        return ["Hips", "Spine", f"{side}Thigh", f"{side}Shin", f"{side}Foot"]
+    return ["Hips", "Spine", "Chest", "Neck"]
+
+# Smooth skinning: each vertex follows the nearest bones, with up to three
+# influences. Joint rings therefore bend continuously instead of separating.
+for vertex in body.data.vertices:
+    distances = sorted(
+        ((distance_to_bone(vertex.co, name), name) for name in candidate_bones(vertex.co)),
+        key=lambda item: item[0],
+    )[:3]
+    nearest = distances[0][0]
+    weighted = []
+    for distance, name in distances:
+        relative = max(0.0, distance - nearest)
+        weight = math.exp(-((relative / 0.105) ** 2))
+        if weight > 0.015:
+            weighted.append((name, weight))
+    total = sum(weight for _, weight in weighted) or 1.0
+    for name, weight in weighted:
+        groups[name].add([vertex.index], weight / total, "REPLACE")
 
 modifier = body.modifiers.new("FemalePoliceArmature", "ARMATURE")
 modifier.object = armature
