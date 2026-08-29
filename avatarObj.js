@@ -32,8 +32,19 @@ const tempQuaternionA = new THREE.Quaternion();
 const tempQuaternionB = new THREE.Quaternion();
 const tempQuaternionC = new THREE.Quaternion();
 const avatarPartTextureCache = new Map();
-const policeModelLoader = new GLTFLoader();
-const POLICE_MODEL_URL = new URL('./아바타 용/여성경찰/female_police_rigged.glb', import.meta.url).href;
+const avatarModelLoader = new GLTFLoader();
+const JOB_FOLDER_NAMES = {
+  student: '학생', astronaut: '우주비행사', hacker: '해커', teacher: '교사',
+  doctor: '의사', police: '경찰', firefighter: '소방관', chef: '요리사', singer: '가수',
+};
+
+function getAvatarModelUrl(gender, occupation) {
+  const genderFolder = gender === 'female' ? '여성' : '남성';
+  const jobFolder = JOB_FOLDER_NAMES[occupation];
+  if (!jobFolder) return null;
+  const file = `${gender === 'female' ? 'female' : 'male'}_${occupation}_rigged.glb`;
+  return new URL(`./아바타 용/${genderFolder}${jobFolder}/${file}`, import.meta.url).href;
+}
 
 const AVATAR_FOLDER_NAMES = Object.freeze({
   student: '학생', astronaut: '우주비행사', hacker: '해커', teacher: '교사',
@@ -135,7 +146,7 @@ function constrainTrackedLimb(direction, side, kind) {
   return constrained.lengthSq() > 1e-8 ? constrained.normalize() : null;
 }
 
-function buildPoliceRig(model) {
+function buildGlbRig(model) {
   const find = name => model.getObjectByName(name) || null;
   return {
     torso: find('Hips'),
@@ -153,6 +164,27 @@ function buildPoliceRig(model) {
     rightShin: find('RightShin'),
     rightFoot: find('RightFoot'),
   };
+}
+
+function applyGlbColors(model, options) {
+  const recolored = new Set();
+  model.traverse(object => {
+    if (!object.isMesh) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    materials.filter(Boolean).forEach(material => {
+      if (recolored.has(material)) return;
+      recolored.add(material);
+      const name = material.name.toLowerCase();
+      let color = null;
+      if (name.includes('skin')) color = options.skinColor;
+      else if (name.includes('accent') || name.includes('neon')) color = options.accentColor;
+      else if (name.includes('boot') || name.includes('shoe')) color = options.shoeColor;
+      else if (name.includes('bottom') || name.includes('belt')) color = options.bottomColor;
+      else if (name.includes('top') || name.includes('uniform')) color = options.topColor;
+      if (color && material.color) material.color.set(color);
+      material.needsUpdate = true;
+    });
+  });
 }
 
 function cacheBoneRestDirections(rig) {
@@ -878,15 +910,16 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
       model = null;
     }
 
-    const usePoliceModel = options.gender === 'female' && options.occupation === 'police';
-    if (usePoliceModel) {
+    const avatarModelUrl = getAvatarModelUrl(options.gender, options.occupation);
+    if (avatarModelUrl) {
       try {
-        const gltf = await policeModelLoader.loadAsync(POLICE_MODEL_URL);
+        const gltf = await avatarModelLoader.loadAsync(avatarModelUrl);
         if (disposed || generation !== modelLoadGeneration) {
           disposeGroup(gltf.scene);
           return;
         }
         model = gltf.scene;
+        applyGlbColors(model, options);
         model.traverse(object => {
           if (!object.isMesh) return;
           object.castShadow = true;
@@ -905,20 +938,20 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
         model.position.y -= bounds.min.y;
         root.add(model);
         model.updateMatrixWorld(true);
-        rig = buildPoliceRig(model);
+        rig = buildGlbRig(model);
         cacheBoneRestDirections(rig);
         const missing = Object.entries(rig).filter(([, bone]) => !bone).map(([name]) => name);
         const skinnedMeshes = [];
         model.traverse(object => { if (object.isSkinnedMesh) skinnedMeshes.push(object); });
         if (missing.length || !skinnedMeshes.length) {
-          throw new Error(`Invalid female police rig: missing=${missing.join(',')}, skinnedMeshes=${skinnedMeshes.length}`);
+          throw new Error(`Invalid avatar rig: missing=${missing.join(',')}, skinnedMeshes=${skinnedMeshes.length}`);
         }
-        console.info(`[Pose Vision] Female police GLB loaded: ${skinnedMeshes.length} SkinnedMesh, ${Object.keys(rig).length} mapped bones`);
+        console.info(`[Pose Vision] ${options.gender}/${options.occupation} GLB loaded: ${skinnedMeshes.length} SkinnedMesh`);
         loaded = true;
         if (latestPoseInput) poseTargets = makePoseTargets(latestPoseInput);
         return;
       } catch (error) {
-        console.error('Female police GLB load failed; using procedural fallback.', error);
+        console.error('Avatar GLB load failed; using procedural fallback.', error);
       }
     }
 
