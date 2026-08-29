@@ -11,7 +11,6 @@ export const DEFAULT_AVATAR_OPTIONS = Object.freeze({
   bodyType: 'balanced',
   bodyVariant: 'standard',
   gender: 'male',
-  ageGroup: '10-20',
   occupation: 'student',
   backgroundStyle: 'neon-future-city',
   theme: 'cyberpunk',
@@ -34,76 +33,6 @@ const tempQuaternionC = new THREE.Quaternion();
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
-}
-
-function findBone(root, names) {
-  const wanted = names.map(name => String(name).toLowerCase());
-  let found = null;
-  root.traverse(object => {
-    if (!object.isBone || found) return;
-    const key = String(object.name || '').toLowerCase();
-    if (wanted.some(name =>
-      key === name ||
-      key.startsWith(`${name}.`) ||
-      key.startsWith(`${name}_`) ||
-      key.endsWith(`.${name}`)
-    )) {
-      found = object;
-    }
-  });
-  return found;
-}
-
-function buildRig(model) {
-  const rig = {
-    hips: findBone(model, ['hips']),
-    spine: findBone(model, ['spine']),
-    chest: findBone(model, ['chest']),
-    neck: findBone(model, ['neck']),
-    head: findBone(model, ['head']),
-    shoulderL: findBone(model, ['shoulder.l']),
-    upperArmL: findBone(model, ['upper_arm.l', 'upperarm.l']),
-    forearmL: findBone(model, ['forearm.l']),
-    handL: findBone(model, ['hand.l']),
-    shoulderR: findBone(model, ['shoulder.r']),
-    upperArmR: findBone(model, ['upper_arm.r', 'upperarm.r']),
-    forearmR: findBone(model, ['forearm.r']),
-    handR: findBone(model, ['hand.r']),
-    thighL: findBone(model, ['thigh.l']),
-    shinL: findBone(model, ['shin.l']),
-    footL: findBone(model, ['foot.l']),
-    toeL: findBone(model, ['toe.l']),
-    thighR: findBone(model, ['thigh.r']),
-    shinR: findBone(model, ['shin.r']),
-    footR: findBone(model, ['foot.r']),
-    toeR: findBone(model, ['toe.r']),
-  };
-
-  const missing = Object.entries(rig)
-    .filter(([, bone]) => !bone)
-    .map(([name]) => name);
-
-  console.info('[Pose Vision] Rig map:', Object.fromEntries(
-    Object.entries(rig).map(([name, bone]) => [name, bone?.name ?? null]),
-  ));
-  if (missing.length) console.warn('[Pose Vision] Missing optional bones:', missing.join(', '));
-  return rig;
-}
-
-function cacheRigRestPose(rig) {
-  Object.values(rig).forEach(bone => {
-    if (!bone) return;
-    bone.updateWorldMatrix(true, false);
-    const child = bone.children?.find(item => item.isBone);
-    const bonePosition = bone.getWorldPosition(new THREE.Vector3());
-    const childPosition = child?.getWorldPosition(new THREE.Vector3());
-
-    bone.userData.poseVisionRestLocalQuaternion = bone.quaternion.clone();
-    bone.userData.poseVisionRestWorldQuaternion = bone.getWorldQuaternion(new THREE.Quaternion()).clone();
-    bone.userData.poseVisionRestWorldDirection = childPosition
-      ? childPosition.sub(bonePosition).normalize()
-      : null;
-  });
 }
 
 function hasWorldPoint(point) {
@@ -207,16 +136,6 @@ function makeMaterial(color, roughness = 0.72, metalness = 0.08, emissive = '#00
   });
 }
 
-function addBox(group, position, scale, material) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material);
-  mesh.position.set(...position);
-  mesh.scale.set(...scale);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  group.add(mesh);
-  return mesh;
-}
-
 function makeAvatarMaterial(color, options, accent = false) {
   return makeMaterial(
     color,
@@ -276,13 +195,14 @@ function buildPartAvatar(options) {
   const avatar = new THREE.Group();
   avatar.name = 'PartAvatar';
   const skin = makeAvatarMaterial(options.skinColor, options);
+  skin.roughness = 0.64;
   const clothing = makeAvatarMaterial(options.topColor, options);
   const bottoms = makeAvatarMaterial(options.bottomColor, options);
   const shoes = makeAvatarMaterial(options.shoeColor, options);
   const accent = makeAvatarMaterial(options.accentColor, options, true);
   const hair = makeAvatarMaterial(options.hairColor, options);
-  const bodyWidth = options.bodyVariant === 'slim' ? 0.68 : options.bodyVariant === 'muscular' ? 0.92 : options.bodyVariant === 'volume' ? 0.88 : 0.79;
-  const limbRadius = options.bodyVariant === 'slim' ? 0.105 : options.bodyVariant === 'muscular' ? 0.15 : 0.125;
+  const bodyWidth = 0.79;
+  const limbRadius = 0.125;
 
   // Face and torso are independent parts. Their positions are skeleton anchors.
   const torsoAnchor = new THREE.Group();
@@ -292,19 +212,6 @@ function buildPartAvatar(options) {
   const torso = makePart(new THREE.CapsuleGeometry(bodyWidth / 2, 0.72, 10, 20), clothing, 'torso');
   torso.scale.z = 0.68;
   torsoAnchor.add(torso);
-  // Keep the same base silhouette while making option changes readable through
-  // surface design, trims and profession-specific insignia.
-  const chestTrim = makePart(new THREE.BoxGeometry(bodyWidth * 0.58, 0.07, 0.035), accent, 'chestTrim');
-  chestTrim.position.set(0, 0.2, bodyWidth * 0.34);
-  torsoAnchor.add(chestTrim);
-  if (options.theme === 'mecha') {
-    [-1, 1].forEach(side => {
-      const armorLine = makePart(new THREE.BoxGeometry(0.055, 0.42, 0.04), accent, 'armorLine');
-      armorLine.position.set(side * bodyWidth * 0.25, 0.02, bodyWidth * 0.34);
-      armorLine.rotation.z = side * -0.18;
-      torsoAnchor.add(armorLine);
-    });
-  }
   const neck = new THREE.Group();
   neck.position.y = 0.72;
   torsoAnchor.add(neck);
@@ -320,21 +227,44 @@ function buildPartAvatar(options) {
   hairCap.position.y = 0.08;
   faceAnchor.add(hairCap);
   if (options.hairStyle === 'long') {
-    // Rounded strands show the length while leaving the face unobstructed.
+    // A soft back layer overlaps both the cap and strands so no joint is visible.
+    const backLayer = makePart(new THREE.SphereGeometry(0.31, 18, 14), hair, 'longHairBackLayer');
+    backLayer.scale.set(0.96, 1.48, 0.55);
+    backLayer.position.set(0, -0.18, -0.17);
+    faceAnchor.add(backLayer);
+
     const addLongHairStrand = (name, x, y, z, radius, length) => {
       const strand = makePart(new THREE.CapsuleGeometry(radius, length, 8, 16), hair, name);
       strand.position.set(x, y, z);
       faceAnchor.add(strand);
     };
-    addLongHairStrand('longHairBack', 0, -0.22, -0.18, 0.22, 0.34);
-    addLongHairStrand('longHairLeft', -0.28, -0.22, 0.01, 0.09, 0.32);
-    addLongHairStrand('longHairRight', 0.28, -0.22, 0.01, 0.09, 0.32);
+    addLongHairStrand('longHairBackLeft', -0.11, -0.37, -0.19, 0.105, 0.46);
+    addLongHairStrand('longHairBackRight', 0.11, -0.37, -0.19, 0.105, 0.46);
+    addLongHairStrand('longHairLeft', -0.275, -0.27, 0.0, 0.072, 0.42);
+    addLongHairStrand('longHairRight', 0.275, -0.27, 0.0, 0.072, 0.42);
   }
   [-0.12, 0.12].forEach(x => {
-    const eye = makePart(new THREE.SphereGeometry(0.032, 8, 6), makeAvatarMaterial(options.eyeColor, options), 'eye');
+    const eye = makePart(new THREE.SphereGeometry(0.034, 12, 8), makeAvatarMaterial(options.eyeColor, options), 'eye');
     eye.position.set(x, 0.015, 0.292);
     faceAnchor.add(eye);
+
+    const brow = makePart(new THREE.CapsuleGeometry(0.008, 0.075, 4, 8), hair, 'eyebrow');
+    brow.position.set(x, 0.09, 0.305);
+    brow.rotation.z = x < 0 ? -1.48 : 1.48;
+    faceAnchor.add(brow);
   });
+
+  const nose = makePart(new THREE.ConeGeometry(0.027, 0.075, 10), skin, 'nose');
+  nose.rotation.x = Math.PI / 2;
+  nose.position.set(0, -0.035, 0.325);
+  faceAnchor.add(nose);
+
+  const lipColor = new THREE.Color(options.skinColor).lerp(new THREE.Color('#8f3f49'), 0.34);
+  const mouth = makePart(new THREE.CapsuleGeometry(0.009, 0.085, 4, 10), makeAvatarMaterial(lipColor, options), 'mouth');
+  mouth.rotation.z = Math.PI / 2;
+  mouth.position.set(0, -0.125, 0.307);
+  faceAnchor.add(mouth);
+
 
   const rig = { torso: torsoAnchor, face: faceAnchor };
   const addArm = (side, x) => {
@@ -425,106 +355,12 @@ function buildPartAvatar(options) {
   return { avatar, rig };
 }
 
-function addBackdrop(group, color, texture = null) {
-  const backdrop = new THREE.Mesh(
-    new THREE.PlaneGeometry(18, 10),
-    new THREE.MeshBasicMaterial({ color, map: texture }),
-  );
-  backdrop.position.set(0, 4.2, -5.5);
-  group.add(backdrop);
-}
-
-function buildEnvironment(style, studioTexture = null) {
-  const group = new THREE.Group();
-  let backgroundColor = '#07101c';
-  let floorColor = '#10192b';
-  let floorMetalness = 0.28;
-  let floorRoughness = 0.42;
-  let gridPrimary = 0x55f4df;
-  let gridSecondary = 0x2a5572;
-
-  if (style === 'space-station') {
-    backgroundColor = '#030711';
-    floorColor = '#394452';
-    floorMetalness = 0.72;
-    floorRoughness = 0.24;
-    gridPrimary = 0x7ca8ff;
-    gridSecondary = 0x32415e;
-    addBackdrop(group, '#030711');
-    const ringMaterial = makeMaterial('#6e7b8e', 0.3, 0.8, '#8fb6ff', 0.35);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.7, 0.08, 12, 80), ringMaterial);
-    ring.position.set(0, 2.5, -4.2);
-    group.add(ring);
-    [-3.1, 3.1].forEach(x => addBox(group, [x, 1.7, -3.8], [0.45, 3.4, 0.5], ringMaterial));
-  } else if (style === 'laboratory') {
-    backgroundColor = '#c9d7df';
-    floorColor = '#d9e0e4';
-    floorMetalness = 0.08;
-    floorRoughness = 0.72;
-    gridPrimary = 0x7ab7c9;
-    gridSecondary = 0xa8c2ca;
-    addBackdrop(group, '#aebfc8');
-    const panel = makeMaterial('#e8f0f3', 0.58, 0.1);
-    const glow = makeMaterial('#75d9e8', 0.35, 0.2, '#75d9e8', 0.65);
-    for (let x = -3; x <= 3; x += 1.5) {
-      addBox(group, [x, 2.1, -4.7], [1.25, 3.6, 0.12], panel);
-      addBox(group, [x, 2.1, -4.5], [0.04, 3.2, 0.05], glow);
-    }
-  } else if (style === 'rainy-neon-street') {
-    backgroundColor = '#090713';
-    floorColor = '#11121b';
-    floorMetalness = 0.88;
-    floorRoughness = 0.12;
-    gridPrimary = 0xff4fd8;
-    gridSecondary = 0x4b2b68;
-    addBackdrop(group, '#090713');
-    const building = makeMaterial('#111522', 0.72, 0.22);
-    const magenta = makeMaterial('#27142b', 0.38, 0.2, '#ff42d0', 1.4);
-    const cyan = makeMaterial('#10252a', 0.38, 0.2, '#47f5ff', 1.3);
-    [-4, -3, 3, 4].forEach((x, index) => {
-      addBox(group, [x, 2.2, -3.8 - (index % 2) * 0.5], [1.25, 4.4, 1.3], building);
-      addBox(group, [x > 0 ? x - 0.55 : x + 0.55, 2.4, -3.05], [0.12, 1.5, 0.08], index % 2 ? magenta : cyan);
-    });
-  } else {
-    // neon-future-city
-    backgroundColor = '#050914';
-    floorColor = '#0b1324';
-    floorMetalness = 0.48;
-    floorRoughness = 0.32;
-    gridPrimary = 0x4df4dc;
-    gridSecondary = 0x264a73;
-    addBackdrop(group, '#ffffff', studioTexture);
-    const building = makeMaterial('#10172b', 0.72, 0.25);
-    const cyan = makeMaterial('#133037', 0.34, 0.25, '#42f5dc', 1.1);
-    const violet = makeMaterial('#201634', 0.34, 0.25, '#a270ff', 1.0);
-    const heights = [2.6, 4.2, 3.3, 5, 3.6, 4.5];
-    [-4.5, -3.2, -1.9, 1.9, 3.2, 4.5].forEach((x, index) => {
-      const height = heights[index];
-      addBox(group, [x, height * 0.5, -4.4], [1.05, height, 1.1], building);
-      addBox(group, [x, height * 0.62, -3.82], [0.06, height * 0.55, 0.04], index % 2 ? violet : cyan);
-    });
-  }
-
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(30, 30),
-    makeMaterial(floorColor, floorRoughness, floorMetalness),
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = -0.012;
-  floor.receiveShadow = true;
-  group.add(floor);
-
-  const grid = new THREE.GridHelper(30, 30, gridPrimary, gridSecondary);
-  grid.position.y = 0.006;
-  const gridMaterials = Array.isArray(grid.material) ? grid.material : [grid.material];
-  gridMaterials.forEach(material => {
-    material.transparent = true;
-    material.opacity = style === 'laboratory' ? 0.25 : 0.48;
-  });
-  group.add(grid);
-
-  return { group, backgroundColor };
-}
+const BACKGROUND_FILES = Object.freeze({
+  'neon-future-city': './background/배경1.png',
+  'space-station': './background/배경2.png',
+  laboratory: './background/배경3.png',
+  'rainy-neon-street': './background/배경4.png',
+});
 
 export function create2DAvatar(container, initialOptions = {}, runtimeOptions = {}) {
   const options = { ...DEFAULT_AVATAR_OPTIONS, ...initialOptions };
@@ -578,33 +414,28 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
   let frameId = null;
   let latestPoseInput = null;
   let poseTargets = null;
-  let environment = null;
+  let referenceBodySize = null;
   let currentBackgroundStyle = null;
-  let studioTexture = null;
-
-  new THREE.TextureLoader().load(
-    new URL('./assets/realistic-future-studio.png', import.meta.url).href,
-    texture => {
-      texture.colorSpace = THREE.SRGBColorSpace;
-      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-      studioTexture = texture;
-      if (!disposed && options.backgroundStyle === 'neon-future-city') rebuildEnvironment();
-    },
-  );
+  const backgroundTextures = new Map();
+  const textureLoader = new THREE.TextureLoader();
 
   function rebuildEnvironment() {
-    if (environment) {
-      scene.remove(environment.group);
-      environment.group.traverse(object => {
-        object.geometry?.dispose?.();
-        if (Array.isArray(object.material)) object.material.forEach(material => material.dispose?.());
-        else object.material?.dispose?.();
-      });
-    }
-    environment = buildEnvironment(options.backgroundStyle, studioTexture);
     currentBackgroundStyle = options.backgroundStyle;
-    scene.add(environment.group);
-    scene.background = new THREE.Color(environment.backgroundColor);
+    const requestedStyle = options.backgroundStyle;
+    const file = BACKGROUND_FILES[requestedStyle] || BACKGROUND_FILES['neon-future-city'];
+    const cached = backgroundTextures.get(file);
+    if (cached) {
+      scene.background = cached;
+      return;
+    }
+    scene.background = new THREE.Color('#050914');
+    textureLoader.load(new URL(file, import.meta.url).href, texture => {
+      if (disposed) { texture.dispose(); return; }
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      backgroundTextures.set(file, texture);
+      if (currentBackgroundStyle === requestedStyle) scene.background = texture;
+    });
   }
 
   function resize() {
@@ -629,6 +460,19 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
       getNormalizedPoint(pose, 23),
       getNormalizedPoint(pose, 24),
     ]);
+    const leftShoulder = getNormalizedPoint(pose, 11);
+    const rightShoulder = getNormalizedPoint(pose, 12);
+    const shoulderWidth = leftShoulder && rightShoulder
+      ? Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y)
+      : 0;
+    const torsoHeight = shoulderCenter && hipCenter
+      ? Math.hypot(shoulderCenter.x - hipCenter.x, shoulderCenter.y - hipCenter.y)
+      : 0;
+    const bodySize = shoulderWidth * 0.62 + torsoHeight * 0.38;
+    if (bodySize > 0.04 && referenceBodySize == null) referenceBodySize = bodySize;
+    const depthScale = referenceBodySize && bodySize > 0.04
+      ? clamp(bodySize / referenceBodySize, 0.62, 1.62)
+      : 1;
 
     let bodyTilt = 0;
     let depthLean = 0;
@@ -654,7 +498,10 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
       bodyTilt,
       depthLean,
       rootX: hipCenter ? clamp(((mirror ? 0.5 - hipCenter.x : hipCenter.x - 0.5) * 1.15), -0.7, 0.7) : 0,
-      rootY: hipCenter ? clamp((0.58 - hipCenter.y) * 1.35, -0.58, 0.58) : 0,
+      // Camera depth changes also move the detected hip vertically. Keep true
+      // vertical following restrained and express depth mainly through scale.
+      rootY: hipCenter ? clamp((0.58 - hipCenter.y) * 0.62, -0.34, 0.34) : 0,
+      depthScale,
       upperArmL: getPoseDirection(pose, 11, 13, mirror),
       forearmL: getPoseDirection(pose, 13, 15, mirror),
       handL: getPoseDirection(pose, 15, 19, mirror),
@@ -674,15 +521,15 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
   function updateRigFromPose(targets) {
     if (!rig || !targets) return;
 
-    setBoneDirection3D(rig.leftUpperArm, targets.upperArmL, 0.40);
-    setBoneDirection3D(rig.leftForearm, targets.forearmL, 0.46);
-    setBoneDirection3D(rig.rightUpperArm, targets.upperArmR, 0.40);
-    setBoneDirection3D(rig.rightForearm, targets.forearmR, 0.46);
+    setBoneDirection3D(rig.leftUpperArm, targets.upperArmL, 0.56);
+    setBoneDirection3D(rig.leftForearm, targets.forearmL, 0.60);
+    setBoneDirection3D(rig.rightUpperArm, targets.upperArmR, 0.56);
+    setBoneDirection3D(rig.rightForearm, targets.forearmR, 0.60);
 
-    setBoneDirection3D(rig.leftThigh, targets.thighL, 0.38);
-    setBoneDirection3D(rig.leftShin, targets.shinL, 0.44);
-    setBoneDirection3D(rig.rightThigh, targets.thighR, 0.38);
-    setBoneDirection3D(rig.rightShin, targets.shinR, 0.44);
+    setBoneDirection3D(rig.leftThigh, targets.thighL, 0.50);
+    setBoneDirection3D(rig.leftShin, targets.shinL, 0.54);
+    setBoneDirection3D(rig.rightThigh, targets.thighR, 0.50);
+    setBoneDirection3D(rig.rightShin, targets.shinR, 0.54);
 
     // Arms ease back to rest when tracking is incomplete. Legs stay in their
     // neutral standing pose whenever their landmarks are unavailable.
@@ -695,19 +542,35 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     if (!targets.thighR) lockBoneAtRest(rig.rightThigh);
     if (!targets.shinR) lockBoneAtRest(rig.rightShin);
 
-    root.rotation.z += (targets.bodyTilt * 0.26 - root.rotation.z) * 0.12;
-    root.rotation.x += (targets.depthLean * 0.32 - root.rotation.x) * 0.12;
-    root.position.x += (targets.rootX - root.position.x) * 0.08;
-    root.position.y += (targets.rootY - root.position.y) * 0.08;
+    root.rotation.z += (targets.bodyTilt * 0.26 - root.rotation.z) * 0.18;
+    root.rotation.x += (targets.depthLean * 0.32 - root.rotation.x) * 0.18;
+    root.position.x += (targets.rootX - root.position.x) * 0.15;
+    root.position.y += (targets.rootY - root.position.y) * 0.13;
+    const targetScale = Number(options.heightScale || 1) * targets.depthScale;
+    const nextScale = root.scale.x + (targetScale - root.scale.x) * 0.14;
+    root.scale.setScalar(nextScale);
+  }
+
+  function restoreNeutralPose() {
+    if (!rig) return;
+    [rig.leftUpperArm, rig.leftForearm, rig.rightUpperArm, rig.rightForearm,
+      rig.leftThigh, rig.leftShin, rig.rightThigh, rig.rightShin]
+      .forEach(bone => restoreBoneTowardRest(bone, 0.14));
+    root.rotation.x += (0 - root.rotation.x) * 0.14;
+    root.rotation.z += (0 - root.rotation.z) * 0.14;
+    root.position.x += (0 - root.position.x) * 0.12;
+    root.position.y += (0 - root.position.y) * 0.12;
+    const neutralScale = Number(options.heightScale || 1);
+    const nextScale = root.scale.x + (neutralScale - root.scale.x) * 0.12;
+    root.scale.setScalar(nextScale);
   }
 
   function renderFrame() {
     frameId = null;
     if (disposed) return;
 
-    if (loaded && poseTargets) {
-      updateRigFromPose(poseTargets);
-    }
+    if (loaded && poseTargets) updateRigFromPose(poseTargets);
+    else if (loaded) restoreNeutralPose();
 
     // GLB 내부 애니메이션은 재생하지 않는다. 재생하면 MediaPipe가 쓴 Bone 회전을
     // AnimationMixer가 다음 프레임에 다시 덮어쓸 수 있다.
@@ -799,6 +662,12 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     if (nextTargets) poseTargets = nextTargets;
   }
 
+
+  function clearPose() {
+    latestPoseInput = null;
+    poseTargets = null;
+  }
+
   function updateAppearance(nextOptions = {}) {
     Object.assign(options, nextOptions);
     root.scale.setScalar(Number(options.heightScale || 1));
@@ -824,7 +693,7 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
       else object.material?.dispose?.();
     });
     renderer.dispose();
-    studioTexture?.dispose();
+    backgroundTextures.forEach(texture => texture.dispose());
     renderer.domElement.remove();
     scene.clear();
   }
@@ -840,6 +709,7 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
 
   return {
     applyPose,
+    clearPose,
     capture,
     dispose,
     domElement: renderer.domElement,

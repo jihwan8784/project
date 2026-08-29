@@ -3,11 +3,6 @@ export const OPTION_GROUPS = Object.freeze({
     { value: 'male', label: '남성' },
     { value: 'female', label: '여성' },
   ],
-  age: [
-    { value: '10-20', label: '10~20대' },
-    { value: '30', label: '30대' },
-    { value: '40-50', label: '40~50대' },
-  ],
   bodyByGender: {
     male: [
       { value: 'slim', label: '슬림형' },
@@ -51,7 +46,6 @@ export const OPTION_GROUPS = Object.freeze({
 
 export const DEFAULT_SELECTION = Object.freeze({
   gender: 'male',
-  age: '10-20',
   body: 'standard',
   occupation: 'student',
   background: 'neon-future-city',
@@ -76,35 +70,32 @@ const OCCUPATION_COLORS = {
 
 export function normalizeSelection(value = {}) {
   const selection = { ...DEFAULT_SELECTION, ...value };
+  delete selection.age;
+  selection.body = 'standard';
   const includes = (group, option) => OPTION_GROUPS[group].some(item => item.value === option);
   if (!includes('gender', selection.gender)) selection.gender = DEFAULT_SELECTION.gender;
-  if (!includes('age', selection.age)) selection.age = DEFAULT_SELECTION.age;
   if (!includes('occupation', selection.occupation)) selection.occupation = DEFAULT_SELECTION.occupation;
   if (!includes('background', selection.background)) selection.background = DEFAULT_SELECTION.background;
   if (!includes('theme', selection.theme)) selection.theme = DEFAULT_SELECTION.theme;
   if (!includes('hairStyle', selection.hairStyle)) selection.hairStyle = DEFAULT_SELECTION.hairStyle;
-  const bodies = OPTION_GROUPS.bodyByGender[selection.gender];
-  if (!bodies.some(item => item.value === selection.body)) selection.body = 'standard';
   return selection;
 }
 
 export function selectionToAppearance(selectionValue) {
   const selection = normalizeSelection(selectionValue);
   const theme = THEME_STYLES[selection.theme];
-  const ageHeadScale = selection.age === '10-20' ? 1.1 : selection.age === '30' ? 1.05 : 1;
   return {
     ...theme,
     topColor: OCCUPATION_COLORS[selection.occupation] || theme.topColor,
-    bodyType: selection.body === 'slim' ? 'slim' : selection.body === 'muscular' ? 'athletic' : 'balanced',
-    bodyVariant: selection.body,
+    bodyType: 'balanced',
+    bodyVariant: 'standard',
     gender: selection.gender,
-    ageGroup: selection.age,
     occupation: selection.occupation,
     backgroundStyle: selection.background,
     theme: selection.theme,
     hairStyle: selection.hairStyle,
     outfitStyle: selection.occupation === 'singer' ? 'idol' : 'casual',
-    headScale: ageHeadScale,
+    headScale: 1.035,
     accessoryStyle: selection.occupation === 'drone-pilot'
       ? 'headphones'
       : selection.occupation === 'teacher' ? 'glasses' : 'none',

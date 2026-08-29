@@ -39,8 +39,6 @@ const mirrorCameraCheckbox = document.getElementById('mirrorCameraCheckbox');
 const captureStatus = document.getElementById('captureStatus');
 const optionSelects = {
   gender: document.getElementById('genderSelect'),
-  age: document.getElementById('ageSelect'),
-  body: document.getElementById('bodySelect'),
   occupation: document.getElementById('occupationSelect'),
   background: document.getElementById('backgroundSelect'),
   theme: document.getElementById('themeSelect'),
@@ -48,8 +46,6 @@ const optionSelects = {
 };
 const liveOptionSelects = {
   gender: document.getElementById('liveGenderSelect'),
-  age: document.getElementById('liveAgeSelect'),
-  body: document.getElementById('liveBodySelect'),
   occupation: document.getElementById('liveOccupationSelect'),
   background: document.getElementById('liveBackgroundSelect'),
   theme: document.getElementById('liveThemeSelect'),
@@ -152,8 +148,6 @@ function currentAppearance() {
 
 function initializeOptionControls() {
   fillSelect(optionSelects.gender, OPTION_GROUPS.gender, currentSelection.gender);
-  fillSelect(optionSelects.age, OPTION_GROUPS.age, currentSelection.age);
-  fillSelect(optionSelects.body, OPTION_GROUPS.bodyByGender[currentSelection.gender], currentSelection.body);
   fillSelect(optionSelects.occupation, OPTION_GROUPS.occupation, currentSelection.occupation);
   fillSelect(optionSelects.background, OPTION_GROUPS.background, currentSelection.background);
   fillSelect(optionSelects.theme, OPTION_GROUPS.theme, currentSelection.theme);
@@ -161,32 +155,17 @@ function initializeOptionControls() {
 
   Object.entries(optionSelects).forEach(([group, select]) => {
     select.addEventListener('change', () => {
-      if (group === 'gender') {
-        currentSelection.gender = select.value;
-        const bodies = OPTION_GROUPS.bodyByGender[currentSelection.gender];
-        const nextBody = bodies.some(option => option.value === optionSelects.body.value)
-          ? optionSelects.body.value
-          : 'standard';
-        fillSelect(optionSelects.body, bodies, nextBody);
-      }
       applyOptionSelection(group);
     });
   });
 
   fillSelect(liveOptionSelects.gender, OPTION_GROUPS.gender, currentSelection.gender);
-  fillSelect(liveOptionSelects.age, OPTION_GROUPS.age, currentSelection.age);
-  fillSelect(liveOptionSelects.body, OPTION_GROUPS.bodyByGender[currentSelection.gender], currentSelection.body);
   fillSelect(liveOptionSelects.occupation, OPTION_GROUPS.occupation, currentSelection.occupation);
   fillSelect(liveOptionSelects.background, OPTION_GROUPS.background, currentSelection.background);
   fillSelect(liveOptionSelects.theme, OPTION_GROUPS.theme, currentSelection.theme);
   fillSelect(liveOptionSelects.hairStyle, OPTION_GROUPS.hairStyle, currentSelection.hairStyle);
   Object.entries(liveOptionSelects).forEach(([group, select]) => {
     select.addEventListener('change', () => {
-      if (group === 'gender') {
-        currentSelection.gender = select.value;
-        const bodies = OPTION_GROUPS.bodyByGender[currentSelection.gender];
-        fillSelect(liveOptionSelects.body, bodies, bodies.some(item => item.value === liveOptionSelects.body.value) ? liveOptionSelects.body.value : 'standard');
-      }
       applyOptionSelection(group, liveOptionSelects);
     });
   });
@@ -280,7 +259,7 @@ function smoothPose(pose, previousPose, now) {
     landmarkSeenAt[index] = now;
     if (!previous) return { ...point, stale: false };
     const movement = Math.hypot(point.x - previous.x, point.y - previous.y);
-    const response = Math.min(0.68, Math.max(0.1, 0.1 + (1 - smoothing) * 0.24 + movement * 2.4));
+    const response = Math.min(0.82, Math.max(0.16, 0.16 + (1 - smoothing) * 0.32 + movement * 2.8));
     return {
       ...point,
       x: previous.x + (point.x - previous.x) * response,
@@ -303,6 +282,33 @@ function hasReliablePose(pose) {
   // A partial body is still useful for the avatar. Requiring three of four
   // points made tracking disappear whenever one shoulder or hip was occluded.
   return reliableCount >= 2 && [11, 12].some(reliable) && [23, 24].some(reliable);
+}
+
+function getDetectedBodyParts(pose, result) {
+  const threshold = getSettings().confidence;
+  const visible = index => {
+    const point = pose?.[index];
+    return Boolean(point && !point.stale &&
+      Math.min(point.visibility ?? 1, point.presence ?? 1) >= threshold);
+  };
+  const has = indices => indices.filter(visible).length >= Math.ceil(indices.length * 0.67);
+  return {
+    face: Boolean(result?.faceLandmarks?.[0]?.length) || has([0, 2, 5, 7, 8]),
+    torso: has([11, 12, 23, 24]),
+    leftArm: has([11, 13, 15]),
+    rightArm: has([12, 14, 16]),
+    leftLeg: has([23, 25, 27]),
+    rightLeg: has([24, 26, 28]),
+  };
+}
+
+function bodyPartStatus(parts) {
+  const labels = [];
+  if (parts.face) labels.push('얼굴');
+  if (parts.torso) labels.push('몸통');
+  if (parts.leftArm || parts.rightArm) labels.push(`팔 ${Number(parts.leftArm) + Number(parts.rightArm)}/2`);
+  if (parts.leftLeg || parts.rightLeg) labels.push(`다리 ${Number(parts.leftLeg) + Number(parts.rightLeg)}/2`);
+  return labels.join(' · ');
 }
 
 function hasMeaningfulMotion(pose, previousPose) {
@@ -372,6 +378,7 @@ function processFrame(now) {
     const frameNow = performance.now();
     const rawPose = result?.landmarks?.[0] ?? null;
     const pose = smoothPose(rawPose, latestPose, frameNow);
+    const detectedParts = getDetectedBodyParts(pose, result);
     const reliable = hasReliablePose(pose);
     if (reliable) {
       const avatarMoved = hasMeaningfulMotion(pose, latestPose);
@@ -389,13 +396,13 @@ function processFrame(now) {
     }, getSettings());
 
     if (reliable) {
-      detectionStatus.textContent = 'Pose Lite · 실시간 아바타 추적 중';
+      detectionStatus.textContent = `인식 중 · ${bodyPartStatus(detectedParts)}`;
     } else if (holdingPose) {
-      detectionStatus.textContent = 'Pose Lite · 위치 유지 중';
+      detectionStatus.textContent = `부분 인식 · ${bodyPartStatus(detectedParts) || '자세 유지'}`;
     } else {
       latestPose = null;
-      liveAvatarOverlay.classList.remove('is-visible');
-      detectionStatus.textContent = 'Pose Lite · 사람을 찾는 중';
+      liveAvatar?.clearPose();
+      detectionStatus.textContent = detectedParts.face ? '얼굴 인식 · 전신을 화면에 맞춰 주세요' : '얼굴 · 몸통 · 팔 · 다리를 찾는 중';
     }
     captureButton.disabled = !holdingPose;
   } catch (error) {
@@ -420,7 +427,7 @@ async function startTracking() {
     previewAvatar?.dispose();
     previewAvatar = null;
     liveAvatarOverlay.hidden = false;
-    liveAvatarOverlay.classList.remove('is-visible');
+    liveAvatarOverlay.classList.add('is-visible');
     liveAvatar = create2DAvatar(liveAvatarOverlay, readStoredAvatarOptions(), {
       overlay: true,
     });
@@ -763,4 +770,3 @@ loadSettings();
 createPreview();
 applyOptionSelection('theme');
 loadDriveConfig();
-startTracking();
