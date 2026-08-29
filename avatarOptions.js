@@ -17,12 +17,10 @@ export const OPTION_GROUPS = Object.freeze({
   },
   occupation: [
     { value: 'student', label: '학생' },
-    { value: 'drone-pilot', label: '드론 조종사' },
     { value: 'astronaut', label: '우주 비행사' },
     { value: 'hacker', label: '해커' },
     { value: 'teacher', label: '교사' },
     { value: 'doctor', label: '의사' },
-    { value: 'nurse', label: '간호사' },
     { value: 'police', label: '경찰' },
     { value: 'firefighter', label: '소방관' },
     { value: 'chef', label: '요리사' },
@@ -33,10 +31,6 @@ export const OPTION_GROUPS = Object.freeze({
     { value: 'space-station', label: '우주정거장' },
     { value: 'laboratory', label: '연구소' },
     { value: 'rainy-neon-street', label: '비 내리는 네온 거리' },
-  ],
-  theme: [
-    { value: 'cyberpunk', label: '사이버펑크' },
-    { value: 'mecha', label: '메카' },
   ],
   hairStyle: [
     { value: 'short', label: '짧은 머리' },
@@ -63,8 +57,8 @@ const THEME_STYLES = {
 };
 
 const OCCUPATION_COLORS = {
-  student: '#334f82', 'drone-pilot': '#354651', astronaut: '#e8edf3', hacker: '#20203b',
-  teacher: '#7a5b45', doctor: '#e7f1ef', nurse: '#e8f0ff', police: '#233d69',
+  student: '#334f82', astronaut: '#e8edf3', hacker: '#20203b',
+  teacher: '#7a5b45', doctor: '#e7f1ef', police: '#233d69',
   firefighter: '#9b332d', chef: '#f0ece3', singer: '#633c89',
 };
 
@@ -72,11 +66,11 @@ export function normalizeSelection(value = {}) {
   const selection = { ...DEFAULT_SELECTION, ...value };
   delete selection.age;
   selection.body = 'standard';
+  selection.theme = 'cyberpunk';
   const includes = (group, option) => OPTION_GROUPS[group].some(item => item.value === option);
   if (!includes('gender', selection.gender)) selection.gender = DEFAULT_SELECTION.gender;
   if (!includes('occupation', selection.occupation)) selection.occupation = DEFAULT_SELECTION.occupation;
   if (!includes('background', selection.background)) selection.background = DEFAULT_SELECTION.background;
-  if (!includes('theme', selection.theme)) selection.theme = DEFAULT_SELECTION.theme;
   if (!includes('hairStyle', selection.hairStyle)) selection.hairStyle = DEFAULT_SELECTION.hairStyle;
   return selection;
 }
@@ -96,8 +90,6 @@ export function selectionToAppearance(selectionValue) {
     hairStyle: selection.hairStyle,
     outfitStyle: selection.occupation === 'singer' ? 'idol' : 'casual',
     headScale: 1.035,
-    accessoryStyle: selection.occupation === 'drone-pilot'
-      ? 'headphones'
-      : selection.occupation === 'teacher' ? 'glasses' : 'none',
+    accessoryStyle: selection.occupation === 'teacher' ? 'glasses' : 'none',
   };
 }

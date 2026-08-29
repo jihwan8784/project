@@ -1,4 +1,5 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js';
+import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/loaders/GLTFLoader.js';
 
 export const DEFAULT_AVATAR_OPTIONS = Object.freeze({
   skinColor: '#d99a78',
@@ -30,6 +31,14 @@ const tempVectorB = new THREE.Vector3();
 const tempQuaternionA = new THREE.Quaternion();
 const tempQuaternionB = new THREE.Quaternion();
 const tempQuaternionC = new THREE.Quaternion();
+const avatarPartTextureCache = new Map();
+const policeModelLoader = new GLTFLoader();
+const POLICE_MODEL_URL = new URL('./아바타 용/여성경찰/female_police_rigged.glb', import.meta.url).href;
+
+const AVATAR_FOLDER_NAMES = Object.freeze({
+  student: '학생', astronaut: '우주비행사', hacker: '해커', teacher: '교사',
+  doctor: '의사', police: '경찰', firefighter: '소방관', chef: '요리사', singer: '가수',
+});
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -90,6 +99,85 @@ function averageNormalized(points) {
     x: valid.reduce((sum, point) => sum + point.x, 0) / valid.length,
     y: valid.reduce((sum, point) => sum + point.y, 0) / valid.length,
     z: valid.reduce((sum, point) => sum + (point.z ?? 0), 0) / valid.length,
+  };
+}
+
+function getBodyYaw(leftShoulder, rightShoulder, mirror = false) {
+  if (!leftShoulder || !rightShoulder) return null;
+  // Anatomical left appears to the right of anatomical right in a front view,
+  // and their order reverses after the person turns around.
+  const shoulderOrder = leftShoulder.x - rightShoulder.x;
+  let depthDifference = 0;
+  if (hasWorldPoint(leftShoulder) && hasWorldPoint(rightShoulder)) {
+    depthDifference = leftShoulder.worldZ - rightShoulder.worldZ;
+  } else {
+    depthDifference = (leftShoulder.z ?? 0) - (rightShoulder.z ?? 0);
+  }
+  if (mirror) depthDifference *= -1;
+  const magnitude = Math.hypot(shoulderOrder, depthDifference);
+  if (magnitude < 0.018) return null;
+  return Math.atan2(depthDifference, shoulderOrder);
+}
+
+function easeAngle(current, target, amount) {
+  let difference = target - current;
+  while (difference > Math.PI) difference -= Math.PI * 2;
+  while (difference < -Math.PI) difference += Math.PI * 2;
+  return current + difference * amount;
+}
+
+function constrainTrackedLimb(direction, side, kind) {
+  if (!direction) return null;
+  const constrained = direction.clone();
+  // Preserve the camera direction. Only discard impossible depth spikes caused
+  // by a temporarily occluded landmark so a limb cannot flip through the body.
+  constrained.z = clamp(constrained.z, -0.92, 0.92);
+  return constrained.lengthSq() > 1e-8 ? constrained.normalize() : null;
+}
+
+function buildPoliceRig(model) {
+  const find = name => model.getObjectByName(name) || null;
+  return {
+    torso: find('Hips'),
+    face: find('Head'),
+    leftUpperArm: find('RightUpperArm'),
+    leftForearm: find('RightForearm'),
+    rightUpperArm: find('LeftUpperArm'),
+    rightForearm: find('LeftForearm'),
+    leftThigh: find('RightThigh'),
+    leftShin: find('RightShin'),
+    rightThigh: find('LeftThigh'),
+    rightShin: find('LeftShin'),
+  };
+}
+
+function cacheBoneRestDirections(rig) {
+  Object.values(rig).forEach(bone => {
+    if (!bone) return;
+    bone.updateWorldMatrix(true, false);
+    const child = bone.children.find(item => item.isBone);
+    bone.userData.poseVisionRestLocalQuaternion = bone.quaternion.clone();
+    bone.userData.poseVisionRestWorldQuaternion = bone.getWorldQuaternion(new THREE.Quaternion()).clone();
+    if (child) {
+      bone.userData.poseVisionRestWorldDirection = child.getWorldPosition(new THREE.Vector3())
+        .sub(bone.getWorldPosition(new THREE.Vector3()))
+        .normalize();
+    }
+  });
+}
+
+function getHeadTargets(pose, mirror = false) {
+  const nose = getNormalizedPoint(pose, 0);
+  const leftEar = getNormalizedPoint(pose, 7);
+  const rightEar = getNormalizedPoint(pose, 8);
+  if (!nose || !leftEar || !rightEar) return null;
+  const earCenter = averageNormalized([leftEar, rightEar]);
+  const earWidth = Math.max(0.025, Math.hypot(leftEar.x - rightEar.x, leftEar.y - rightEar.y));
+  const mirrorSign = mirror ? -1 : 1;
+  return {
+    yaw: clamp((nose.x - earCenter.x) / earWidth * 0.9 * mirrorSign, -0.72, 0.72),
+    roll: clamp(Math.atan2(rightEar.y - leftEar.y, Math.abs(rightEar.x - leftEar.x)) * mirrorSign, -0.5, 0.5),
+    pitch: clamp(((nose.y - earCenter.y) / earWidth - 0.34) * 0.42, -0.34, 0.34),
   };
 }
 
@@ -154,6 +242,109 @@ function makePart(geometry, material, name) {
   return part;
 }
 
+function getFemalePoliceAtlasTexture(suffix, baseColor) {
+  const sourceUrl = new URL('./아바타 용/여성경찰/여성경찰-turnaround-transparent.png', import.meta.url).href;
+  const cacheKey = `${sourceUrl}|${suffix}|${baseColor}`;
+  if (avatarPartTextureCache.has(cacheKey)) return avatarPartTextureCache.get(cacheKey);
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const context = canvas.getContext('2d');
+  context.fillStyle = baseColor;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const regions = {
+    2: [[1080, 35, 400, 430], [500, 45, 270, 440], [55, 30, 415, 440], [775, 45, 280, 440]],
+    3: [[1040, 120, 170, 400], [505, 120, 145, 400], [0, 115, 170, 410], [785, 120, 145, 400]],
+    4: [[1370, 120, 160, 400], [650, 120, 120, 400], [350, 115, 155, 410], [925, 120, 125, 400]],
+    5: [[1100, 345, 365, 200], [530, 340, 225, 210], [95, 340, 345, 205], [800, 340, 225, 210]],
+    copy: [[1080, 430, 205, 565], [535, 430, 155, 565], [75, 430, 190, 565], [805, 430, 155, 565]],
+    6: [[1280, 430, 205, 565], [645, 430, 150, 565], [255, 430, 190, 565], [915, 430, 150, 565]],
+  };
+  const selected = regions[suffix] || regions[2];
+  const image = new Image();
+  image.onload = () => {
+    context.fillStyle = baseColor;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    selected.forEach(([sx, sy, sw, sh], index) => {
+      context.drawImage(image, sx, sy, sw, sh, index * 256, 0, 256, 512);
+    });
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    const fill = new THREE.Color(baseColor);
+    const fillR = Math.round(fill.r * 255);
+    const fillG = Math.round(fill.g * 255);
+    const fillB = Math.round(fill.b * 255);
+    for (let index = 0; index < pixels.data.length; index += 4) {
+      const red = pixels.data[index];
+      const green = pixels.data[index + 1];
+      const blue = pixels.data[index + 2];
+      const spread = Math.max(red, green, blue) - Math.min(red, green, blue);
+      if (spread < 14 && (red + green + blue) / 3 > 178) {
+        pixels.data[index] = fillR;
+        pixels.data[index + 1] = fillG;
+        pixels.data[index + 2] = fillB;
+      }
+    }
+    context.putImageData(pixels, 0, 0);
+    texture.needsUpdate = true;
+  };
+  image.src = sourceUrl;
+  avatarPartTextureCache.set(cacheKey, texture);
+  return texture;
+}
+
+function getAvatarPartTexture(options, suffix, baseColor) {
+  if (options.gender === 'female' && options.occupation === 'police') {
+    return getFemalePoliceAtlasTexture(suffix, baseColor);
+  }
+  const role = AVATAR_FOLDER_NAMES[options.occupation];
+  if (!role) return null;
+  const prefix = `${options.gender === 'female' ? '여성' : '남성'}${role}`;
+  const file = suffix === 'copy'
+    ? `${prefix}-Photoroom - 복사본.png`
+    : suffix ? `${prefix}-Photoroom - 복사본 (${suffix}).png` : `${prefix}-Photoroom.png`;
+  const url = new URL(`./아바타 용/${prefix}/${file}`, import.meta.url).href;
+  const cacheKey = `${url}|${baseColor}`;
+  if (avatarPartTextureCache.has(cacheKey)) return avatarPartTextureCache.get(cacheKey);
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const context = canvas.getContext('2d');
+  context.fillStyle = baseColor;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const image = new Image();
+  image.onload = () => {
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = baseColor;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    const scale = Math.min(canvas.width / image.width, canvas.height / image.height);
+    const width = image.width * scale;
+    const height = image.height * scale;
+    context.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+    texture.needsUpdate = true;
+  };
+  image.src = url;
+  avatarPartTextureCache.set(cacheKey, texture);
+  return texture;
+}
+
+function makeDesignedMaterial(baseColor, options, texture) {
+  const material = makeAvatarMaterial('#ffffff', options);
+  material.map = texture;
+  material.needsUpdate = true;
+  return material;
+}
+
+function addJointBand(parent, name, radius, y, material) {
+  const band = makePart(new THREE.CylinderGeometry(radius, radius, 0.075, 16), material, name);
+  band.position.y = y;
+  parent.add(band);
+  return band;
+}
+
 // Every visible body section has its own anchor.  Limb anchors point from a
 // joint to the next joint, so pose tracking only rotates that one section.
 function createSegment(name, length, radius, material, endRadius = radius * 1.06) {
@@ -201,17 +392,54 @@ function buildPartAvatar(options) {
   const shoes = makeAvatarMaterial(options.shoeColor, options);
   const accent = makeAvatarMaterial(options.accentColor, options, true);
   const hair = makeAvatarMaterial(options.hairColor, options);
-  const bodyWidth = 0.79;
-  const limbRadius = 0.125;
+  const isPoliceAvatar = options.gender === 'female' && options.occupation === 'police';
+  const bodyWidth = isPoliceAvatar ? 0.84 : 0.79;
+  const limbRadius = isPoliceAvatar ? 0.115 : 0.125;
+  const isHackerDesign = options.occupation === 'hacker';
 
   // Face and torso are independent parts. Their positions are skeleton anchors.
   const torsoAnchor = new THREE.Group();
   torsoAnchor.name = 'torsoAnchor';
   torsoAnchor.position.set(0, 1.05, 0);
   avatar.add(torsoAnchor);
-  const torso = makePart(new THREE.CapsuleGeometry(bodyWidth / 2, 0.72, 10, 20), clothing, 'torso');
-  torso.scale.z = 0.68;
+  const torsoTexture = getAvatarPartTexture(options, 2, options.topColor);
+  const torsoMaterial = torsoTexture ? makeDesignedMaterial(options.topColor, options, torsoTexture) : clothing;
+  const torsoGeometry = isPoliceAvatar
+    ? new THREE.CylinderGeometry(bodyWidth * 0.47, bodyWidth * 0.30, 1.14, 24, 8)
+    : isHackerDesign
+      ? new THREE.CapsuleGeometry(bodyWidth * 0.43, 0.66, 12, 24)
+      : new THREE.CapsuleGeometry(bodyWidth / 2, 0.72, 10, 20);
+  const torso = makePart(torsoGeometry, torsoMaterial, 'torso');
+  torso.scale.z = isPoliceAvatar ? 0.72 : isHackerDesign ? 0.76 : 0.68;
+  if (isPoliceAvatar) torso.position.y = 0.08;
   torsoAnchor.add(torso);
+  if (isPoliceAvatar) {
+    const waistTexture = getAvatarPartTexture(options, 5, options.bottomColor);
+    const uniformBottoms = waistTexture ? makeDesignedMaterial(options.bottomColor, options, waistTexture) : bottoms;
+    const hips = makePart(new THREE.CapsuleGeometry(0.34, 0.12, 10, 22), uniformBottoms, 'policeUniformHips');
+    hips.scale.set(1.18, 0.76, 0.78);
+    hips.position.y = -0.47;
+    torsoAnchor.add(hips);
+    addJointBand(torsoAnchor, 'policeUniformBelt', 0.31, -0.36, accent);
+    const collar = makePart(new THREE.TorusGeometry(0.265, 0.035, 8, 24), accent, 'policeUniformCollar');
+    collar.position.y = 0.61;
+    collar.scale.y = 0.72;
+    torsoAnchor.add(collar);
+  }
+  if (isHackerDesign) {
+    const collar = makePart(new THREE.TorusGeometry(0.29, 0.045, 8, 24), accent, 'hackerJacketCollar');
+    collar.position.set(0, 0.49, 0.015);
+    collar.scale.y = 0.72;
+    torsoAnchor.add(collar);
+
+    const waistTexture = getAvatarPartTexture(options, 5, options.bottomColor);
+    const waistMaterial = waistTexture ? makeDesignedMaterial(options.bottomColor, options, waistTexture) : bottoms;
+    const waist = makePart(new THREE.SphereGeometry(0.42, 20, 14), waistMaterial, 'hackerWaistConnector');
+    waist.scale.set(1, 0.38, 0.72);
+    waist.position.y = -0.43;
+    torsoAnchor.add(waist);
+    addJointBand(torsoAnchor, 'hackerWaistBand', 0.34, -0.34, accent);
+  }
   const neck = new THREE.Group();
   neck.position.y = 0.72;
   torsoAnchor.add(neck);
@@ -226,6 +454,10 @@ function buildPartAvatar(options) {
   hairCap.scale.z = 0.87;
   hairCap.position.y = 0.08;
   faceAnchor.add(hairCap);
+  const backHair = makePart(new THREE.SphereGeometry(0.32, 18, 14), hair, 'backHair');
+  backHair.scale.set(0.96, options.hairStyle === 'long' ? 1.18 : 0.92, 0.30);
+  backHair.position.set(0, options.hairStyle === 'long' ? -0.04 : 0.025, -0.285);
+  faceAnchor.add(backHair);
   if (options.hairStyle === 'long') {
     // A soft back layer overlaps both the cap and strands so no joint is visible.
     const backLayer = makePart(new THREE.SphereGeometry(0.31, 18, 14), hair, 'longHairBackLayer');
@@ -254,31 +486,50 @@ function buildPartAvatar(options) {
     faceAnchor.add(brow);
   });
 
-  const nose = makePart(new THREE.ConeGeometry(0.027, 0.075, 10), skin, 'nose');
-  nose.rotation.x = Math.PI / 2;
-  nose.position.set(0, -0.035, 0.325);
-  faceAnchor.add(nose);
+  {
+    const nose = makePart(new THREE.ConeGeometry(0.027, 0.075, 10), skin, 'nose');
+    nose.rotation.x = Math.PI / 2;
+    nose.position.set(0, -0.035, 0.325);
+    faceAnchor.add(nose);
 
-  const lipColor = new THREE.Color(options.skinColor).lerp(new THREE.Color('#8f3f49'), 0.34);
-  const mouth = makePart(new THREE.CapsuleGeometry(0.009, 0.085, 4, 10), makeAvatarMaterial(lipColor, options), 'mouth');
-  mouth.rotation.z = Math.PI / 2;
-  mouth.position.set(0, -0.125, 0.307);
-  faceAnchor.add(mouth);
+    const lipColor = new THREE.Color(options.skinColor).lerp(new THREE.Color('#8f3f49'), 0.34);
+    const mouth = makePart(new THREE.CapsuleGeometry(0.009, 0.085, 4, 10), makeAvatarMaterial(lipColor, options), 'mouth');
+    mouth.rotation.z = Math.PI / 2;
+    mouth.position.set(0, -0.125, 0.307);
+    faceAnchor.add(mouth);
+  }
 
 
   const rig = { torso: torsoAnchor, face: faceAnchor };
   const addArm = (side, x) => {
     const shoulder = new THREE.Group();
     shoulder.name = `${side}ShoulderAnchor`;
-    shoulder.position.set(x, 0.48, 0);
+    shoulder.position.set(
+      isPoliceAvatar ? Math.sign(x) * bodyWidth * 0.49 : isHackerDesign ? Math.sign(x) * bodyWidth * 0.52 : x,
+      isPoliceAvatar ? 0.50 : 0.48,
+      0,
+    );
     torsoAnchor.add(shoulder);
-    const upper = createSegment(`${side}UpperArm`, 0.48, limbRadius, clothing);
+    const armTexture = getAvatarPartTexture(options, side === 'left' ? 3 : 4, options.topColor);
+    const armMaterial = armTexture ? makeDesignedMaterial(options.topColor, options, armTexture) : clothing;
+    const upper = createSegment(`${side}UpperArm`, isPoliceAvatar ? 0.50 : 0.48, isPoliceAvatar ? limbRadius * 1.12 : limbRadius, armMaterial);
     shoulder.add(upper.anchor);
-    const lower = createSegment(`${side}Forearm`, 0.42, limbRadius * 0.9, skin);
+    const lower = createSegment(`${side}Forearm`, isPoliceAvatar ? 0.45 : 0.42, isPoliceAvatar ? limbRadius : limbRadius * 0.9, armMaterial);
     // Overlap the rounded ends slightly so the arm reads as one continuous form,
     // rather than a pair of pieces joined by a visible elbow ball.
     lower.anchor.position.y = limbRadius * 0.45;
     upper.end.add(lower.anchor);
+    if (isPoliceAvatar) {
+      addJointBand(lower.anchor, `${side}PoliceElbowGuard`, limbRadius * 1.18, -0.035, accent);
+      const hand = makePart(new THREE.SphereGeometry(1, 14, 10), skin, `${side}Hand`);
+      hand.scale.set(limbRadius * 0.82, limbRadius * 1.15, limbRadius * 0.58);
+      hand.position.y = -0.47;
+      lower.anchor.add(hand);
+    }
+    if (isHackerDesign) {
+      addJointBand(upper.anchor, `${side}ShoulderBand`, limbRadius * 1.18, -0.045, accent);
+      addJointBand(lower.anchor, `${side}ElbowBand`, limbRadius, -0.02, accent);
+    }
     rig[`${side}UpperArm`] = upper.anchor;
     rig[`${side}Forearm`] = lower.anchor;
   };
@@ -291,16 +542,26 @@ function buildPartAvatar(options) {
     hip.position.set(x, -0.43, 0);
     torsoAnchor.add(hip);
     // Four leg segments total: two thighs and two shins.
-    const thigh = createSegment(`${side}Thigh`, 0.58, limbRadius * 1.18, bottoms);
+    const legTexture = getAvatarPartTexture(options, side === 'left' ? 'copy' : 6, options.bottomColor);
+    const legMaterial = legTexture ? makeDesignedMaterial(options.bottomColor, options, legTexture) : bottoms;
+    const thigh = createSegment(`${side}Thigh`, isPoliceAvatar ? 0.62 : 0.58, isPoliceAvatar ? limbRadius * 1.34 : limbRadius * 1.18, legMaterial);
     hip.add(thigh.anchor);
-    const shin = createSegment(`${side}Shin`, 0.53, limbRadius, bottoms);
+    const shin = createSegment(`${side}Shin`, isPoliceAvatar ? 0.58 : 0.53, isPoliceAvatar ? limbRadius * 1.12 : limbRadius, legMaterial);
     // As with the arms, make the leg a continuous tapered silhouette with no
     // separate knee mesh protruding from it.
     shin.anchor.position.y = limbRadius * 0.50;
     thigh.end.add(shin.anchor);
+    if (isPoliceAvatar) {
+      addJointBand(shin.anchor, `${side}PoliceKneeGuard`, limbRadius * 1.30, -0.04, accent);
+    }
+    if (isHackerDesign) {
+      addJointBand(thigh.anchor, `${side}HipBand`, limbRadius * 1.34, -0.045, accent);
+      addJointBand(shin.anchor, `${side}KneeBand`, limbRadius * 1.08, -0.025, accent);
+    }
     // A scaled sphere gives the shoe a rounded silhouette instead of hard box corners.
-    const foot = makePart(new THREE.SphereGeometry(1, 16, 12), shoes, `${side}Foot`);
-    foot.scale.set(limbRadius * 1.18, limbRadius * 0.58, 0.21);
+    const footMaterial = isPoliceAvatar ? legMaterial : shoes;
+    const foot = makePart(new THREE.SphereGeometry(1, 16, 12), footMaterial, `${side}Foot`);
+    foot.scale.set(isPoliceAvatar ? limbRadius * 1.55 : limbRadius * 1.18, limbRadius * 0.68, isPoliceAvatar ? 0.25 : 0.21);
     // The shin end is already at the ankle; offset only by half the shoe height.
     foot.position.set(0, -limbRadius * 0.58, 0.12);
     foot.castShadow = foot.receiveShadow = true;
@@ -330,7 +591,7 @@ function buildPartAvatar(options) {
     const cap = makePart(new THREE.CylinderGeometry(0.34, 0.36, 0.12, 16), clothing, 'policeCap');
     cap.position.y = 0.32;
     faceAnchor.add(cap);
-  } else if (options.occupation === 'doctor' || options.occupation === 'nurse') {
+  } else if (options.occupation === 'doctor') {
     const badge = makePart(new THREE.BoxGeometry(0.18, 0.22, 0.035), accent, 'medicalBadge');
     badge.position.set(0.2, 0.15, bodyWidth * 0.35);
     torsoAnchor.add(badge);
@@ -343,7 +604,7 @@ function buildPartAvatar(options) {
     mic.position.set(0.38, -0.04, 0.16);
     mic.rotation.z = -0.35;
     faceAnchor.add(mic);
-  } else if (options.occupation === 'drone-pilot' || options.occupation === 'hacker') {
+  } else if (options.occupation === 'hacker') {
     const headset = makePart(new THREE.TorusGeometry(0.34, 0.028, 8, 24, Math.PI), accent, 'headset');
     headset.rotation.z = Math.PI;
     headset.position.y = 0.05;
@@ -412,6 +673,7 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
   let rig = null;
   let model = null;
   let frameId = null;
+  let modelLoadGeneration = 0;
   let latestPoseInput = null;
   let poseTargets = null;
   let referenceBodySize = null;
@@ -497,22 +759,24 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
       mirror,
       bodyTilt,
       depthLean,
-      rootX: hipCenter ? clamp(((mirror ? 0.5 - hipCenter.x : hipCenter.x - 0.5) * 1.15), -0.7, 0.7) : 0,
+      rootX: hipCenter ? clamp(((mirror ? 0.5 - hipCenter.x : hipCenter.x - 0.5) * 1.55), -0.9, 0.9) : 0,
       // Camera depth changes also move the detected hip vertically. Keep true
       // vertical following restrained and express depth mainly through scale.
-      rootY: hipCenter ? clamp((0.58 - hipCenter.y) * 0.62, -0.34, 0.34) : 0,
+      rootY: hipCenter ? clamp((0.58 - hipCenter.y) * 0.95, -0.48, 0.48) : 0,
       depthScale,
-      upperArmL: getPoseDirection(pose, 11, 13, mirror),
-      forearmL: getPoseDirection(pose, 13, 15, mirror),
+      bodyYaw: getBodyYaw(leftShoulder, rightShoulder, mirror),
+      head: getHeadTargets(pose, mirror),
+      upperArmL: constrainTrackedLimb(getPoseDirection(pose, 11, 13, mirror), 'left', 'upperArm'),
+      forearmL: constrainTrackedLimb(getPoseDirection(pose, 13, 15, mirror), 'left', 'forearm'),
       handL: getPoseDirection(pose, 15, 19, mirror),
-      upperArmR: getPoseDirection(pose, 12, 14, mirror),
-      forearmR: getPoseDirection(pose, 14, 16, mirror),
+      upperArmR: constrainTrackedLimb(getPoseDirection(pose, 12, 14, mirror), 'right', 'upperArm'),
+      forearmR: constrainTrackedLimb(getPoseDirection(pose, 14, 16, mirror), 'right', 'forearm'),
       handR: getPoseDirection(pose, 16, 20, mirror),
-      thighL: getPoseDirection(pose, 23, 25, mirror),
-      shinL: getPoseDirection(pose, 25, 27, mirror),
+      thighL: constrainTrackedLimb(getPoseDirection(pose, 23, 25, mirror), 'left', 'leg'),
+      shinL: constrainTrackedLimb(getPoseDirection(pose, 25, 27, mirror), 'left', 'leg'),
       footL: getPoseDirection(pose, 27, 31, mirror),
-      thighR: getPoseDirection(pose, 24, 26, mirror),
-      shinR: getPoseDirection(pose, 26, 28, mirror),
+      thighR: constrainTrackedLimb(getPoseDirection(pose, 24, 26, mirror), 'right', 'leg'),
+      shinR: constrainTrackedLimb(getPoseDirection(pose, 26, 28, mirror), 'right', 'leg'),
       footR: getPoseDirection(pose, 28, 32, mirror),
       neck: getPoseDirection(pose, 11, 0, mirror),
     };
@@ -521,15 +785,15 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
   function updateRigFromPose(targets) {
     if (!rig || !targets) return;
 
-    setBoneDirection3D(rig.leftUpperArm, targets.upperArmL, 0.56);
-    setBoneDirection3D(rig.leftForearm, targets.forearmL, 0.60);
-    setBoneDirection3D(rig.rightUpperArm, targets.upperArmR, 0.56);
-    setBoneDirection3D(rig.rightForearm, targets.forearmR, 0.60);
+    setBoneDirection3D(rig.leftUpperArm, targets.upperArmL, 0.84);
+    setBoneDirection3D(rig.leftForearm, targets.forearmL, 0.88);
+    setBoneDirection3D(rig.rightUpperArm, targets.upperArmR, 0.84);
+    setBoneDirection3D(rig.rightForearm, targets.forearmR, 0.88);
 
-    setBoneDirection3D(rig.leftThigh, targets.thighL, 0.50);
-    setBoneDirection3D(rig.leftShin, targets.shinL, 0.54);
-    setBoneDirection3D(rig.rightThigh, targets.thighR, 0.50);
-    setBoneDirection3D(rig.rightShin, targets.shinR, 0.54);
+    setBoneDirection3D(rig.leftThigh, targets.thighL, 0.80);
+    setBoneDirection3D(rig.leftShin, targets.shinL, 0.84);
+    setBoneDirection3D(rig.rightThigh, targets.thighR, 0.80);
+    setBoneDirection3D(rig.rightShin, targets.shinR, 0.84);
 
     // Arms ease back to rest when tracking is incomplete. Legs stay in their
     // neutral standing pose whenever their landmarks are unavailable.
@@ -542,12 +806,18 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     if (!targets.thighR) lockBoneAtRest(rig.rightThigh);
     if (!targets.shinR) lockBoneAtRest(rig.rightShin);
 
-    root.rotation.z += (targets.bodyTilt * 0.26 - root.rotation.z) * 0.18;
-    root.rotation.x += (targets.depthLean * 0.32 - root.rotation.x) * 0.18;
-    root.position.x += (targets.rootX - root.position.x) * 0.15;
-    root.position.y += (targets.rootY - root.position.y) * 0.13;
+    root.rotation.z += (targets.bodyTilt * 0.82 - root.rotation.z) * 0.42;
+    root.rotation.x += (targets.depthLean * 0.76 - root.rotation.x) * 0.40;
+    if (targets.bodyYaw != null) root.rotation.y = easeAngle(root.rotation.y, targets.bodyYaw, 0.36);
+    if (rig.face && targets.head) {
+      rig.face.rotation.y += (targets.head.yaw - rig.face.rotation.y) * 0.24;
+      rig.face.rotation.x += (targets.head.pitch - rig.face.rotation.x) * 0.22;
+      rig.face.rotation.z += (targets.head.roll - rig.face.rotation.z) * 0.22;
+    }
+    root.position.x += (targets.rootX - root.position.x) * 0.42;
+    root.position.y += (targets.rootY - root.position.y) * 0.38;
     const targetScale = Number(options.heightScale || 1) * targets.depthScale;
-    const nextScale = root.scale.x + (targetScale - root.scale.x) * 0.14;
+    const nextScale = root.scale.x + (targetScale - root.scale.x) * 0.34;
     root.scale.setScalar(nextScale);
   }
 
@@ -558,6 +828,12 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
       .forEach(bone => restoreBoneTowardRest(bone, 0.14));
     root.rotation.x += (0 - root.rotation.x) * 0.14;
     root.rotation.z += (0 - root.rotation.z) * 0.14;
+    root.rotation.y = easeAngle(root.rotation.y, 0, 0.10);
+    if (rig.face) {
+      rig.face.rotation.x += (0 - rig.face.rotation.x) * 0.12;
+      rig.face.rotation.y = easeAngle(rig.face.rotation.y, 0, 0.12);
+      rig.face.rotation.z += (0 - rig.face.rotation.z) * 0.12;
+    }
     root.position.x += (0 - root.position.x) * 0.12;
     root.position.y += (0 - root.position.y) * 0.12;
     const neutralScale = Number(options.heightScale || 1);
@@ -578,11 +854,61 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     frameId = requestAnimationFrame(renderFrame);
   }
 
-  function loadModel() {
+  async function loadModel() {
+    const generation = ++modelLoadGeneration;
+    loaded = false;
+    rig = null;
     if (model) {
       root.remove(model);
       disposeGroup(model);
+      model = null;
     }
+
+    const usePoliceModel = options.gender === 'female' && options.occupation === 'police';
+    if (usePoliceModel) {
+      try {
+        const gltf = await policeModelLoader.loadAsync(POLICE_MODEL_URL);
+        if (disposed || generation !== modelLoadGeneration) {
+          disposeGroup(gltf.scene);
+          return;
+        }
+        model = gltf.scene;
+        model.traverse(object => {
+          if (!object.isMesh) return;
+          object.castShadow = true;
+          object.receiveShadow = true;
+          object.frustumCulled = false;
+        });
+        model.updateMatrixWorld(true);
+        const rawBounds = new THREE.Box3().setFromObject(model);
+        const rawSize = rawBounds.getSize(new THREE.Vector3());
+        model.scale.setScalar(1.86 / Math.max(rawSize.y, 1e-5));
+        model.updateMatrixWorld(true);
+        const bounds = new THREE.Box3().setFromObject(model);
+        const center = bounds.getCenter(new THREE.Vector3());
+        model.position.x -= center.x;
+        model.position.z -= center.z;
+        model.position.y -= bounds.min.y;
+        root.add(model);
+        model.updateMatrixWorld(true);
+        rig = buildPoliceRig(model);
+        cacheBoneRestDirections(rig);
+        const missing = Object.entries(rig).filter(([, bone]) => !bone).map(([name]) => name);
+        const skinnedMeshes = [];
+        model.traverse(object => { if (object.isSkinnedMesh) skinnedMeshes.push(object); });
+        if (missing.length || !skinnedMeshes.length) {
+          throw new Error(`Invalid female police rig: missing=${missing.join(',')}, skinnedMeshes=${skinnedMeshes.length}`);
+        }
+        console.info(`[Pose Vision] Female police GLB loaded: ${skinnedMeshes.length} SkinnedMesh, ${Object.keys(rig).length} mapped bones`);
+        loaded = true;
+        if (latestPoseInput) poseTargets = makePoseTargets(latestPoseInput);
+        return;
+      } catch (error) {
+        console.error('Female police GLB load failed; using procedural fallback.', error);
+      }
+    }
+
+    if (disposed || generation !== modelLoadGeneration) return;
     const partAvatar = buildPartAvatar(options);
     model = partAvatar.avatar;
     // The part rig is designed in readable joint units. Scale it, then use its
@@ -685,6 +1011,7 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
 
   function dispose() {
     disposed = true;
+    modelLoadGeneration += 1;
     if (frameId != null) cancelAnimationFrame(frameId);
     resizeObserver.disconnect();
     scene.traverse(object => {

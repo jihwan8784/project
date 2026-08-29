@@ -25,6 +25,7 @@ const driveSaveButton = document.getElementById('driveSaveButton');
 const stopCameraButton = document.getElementById('stopCameraButton');
 const settingsButton = document.getElementById('settingsButton');
 const avatarEditButton = document.getElementById('avatarEditButton');
+const cameraViewButton = document.getElementById('cameraViewButton');
 const liveAvatarEditor = document.getElementById('liveAvatarEditor');
 const closeAvatarEditorButton = document.getElementById('closeAvatarEditorButton');
 const liveOptionStatus = document.getElementById('liveOptionStatus');
@@ -41,14 +42,12 @@ const optionSelects = {
   gender: document.getElementById('genderSelect'),
   occupation: document.getElementById('occupationSelect'),
   background: document.getElementById('backgroundSelect'),
-  theme: document.getElementById('themeSelect'),
   hairStyle: document.getElementById('hairStyleSelect'),
 };
 const liveOptionSelects = {
   gender: document.getElementById('liveGenderSelect'),
   occupation: document.getElementById('liveOccupationSelect'),
   background: document.getElementById('liveBackgroundSelect'),
-  theme: document.getElementById('liveThemeSelect'),
   hairStyle: document.getElementById('liveHairStyleSelect'),
 };
 const avatarColorInputs = {
@@ -64,7 +63,8 @@ const resetAvatarColorsButton = document.getElementById('resetAvatarColorsButton
 
 const CORE_LANDMARKS = [11, 12, 23, 24];
 const LOST_POSE_GRACE_MS = 650;
-const LANDMARK_GRACE_MS = 500;
+const LANDMARK_GRACE_MS = 850;
+const MAX_PREDICTION_STEP = 0.025;
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const GOOGLE_IDENTITY_SCRIPT = 'https://accounts.google.com/gsi/client';
 let previewAvatar = null;
@@ -85,6 +85,7 @@ let googleTokenExpiresAt = 0;
 let googleIdentityPromise = null;
 let currentSelection = readStoredSelection();
 let customAvatarColors = readStoredAvatarColors();
+let cameraPanelVisible = true;
 
 const OPTION_LABELS = {
   gender: '성별', age: '연령대', body: '체형', occupation: '직업군', background: '배경', theme: '테마', hairStyle: '헤어스타일',
@@ -120,7 +121,7 @@ function showOptionReference(group) {
   optionReferenceCaption.textContent = `${OPTION_LABELS[group]} · ${label} · GLB 캐릭터`;
 }
 
-function applyOptionSelection(changedGroup = 'theme', sourceSelects = optionSelects) {
+function applyOptionSelection(changedGroup = 'occupation', sourceSelects = optionSelects) {
   currentSelection = normalizeSelection(Object.fromEntries(
     Object.entries(sourceSelects).map(([key, select]) => [key, select.value]),
   ));
@@ -150,7 +151,6 @@ function initializeOptionControls() {
   fillSelect(optionSelects.gender, OPTION_GROUPS.gender, currentSelection.gender);
   fillSelect(optionSelects.occupation, OPTION_GROUPS.occupation, currentSelection.occupation);
   fillSelect(optionSelects.background, OPTION_GROUPS.background, currentSelection.background);
-  fillSelect(optionSelects.theme, OPTION_GROUPS.theme, currentSelection.theme);
   fillSelect(optionSelects.hairStyle, OPTION_GROUPS.hairStyle, currentSelection.hairStyle);
 
   Object.entries(optionSelects).forEach(([group, select]) => {
@@ -162,7 +162,6 @@ function initializeOptionControls() {
   fillSelect(liveOptionSelects.gender, OPTION_GROUPS.gender, currentSelection.gender);
   fillSelect(liveOptionSelects.occupation, OPTION_GROUPS.occupation, currentSelection.occupation);
   fillSelect(liveOptionSelects.background, OPTION_GROUPS.background, currentSelection.background);
-  fillSelect(liveOptionSelects.theme, OPTION_GROUPS.theme, currentSelection.theme);
   fillSelect(liveOptionSelects.hairStyle, OPTION_GROUPS.hairStyle, currentSelection.hairStyle);
   Object.entries(liveOptionSelects).forEach(([group, select]) => {
     select.addEventListener('change', () => {
@@ -252,14 +251,29 @@ function smoothPose(pose, previousPose, now) {
       ? Math.min(point.visibility ?? 1, point.presence ?? 1)
       : 0;
     if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y) || confidence < 0.14) {
-      return previous && now - landmarkSeenAt[index] <= LANDMARK_GRACE_MS
-        ? { ...previous, stale: true }
-        : null;
+      if (!previous || now - landmarkSeenAt[index] > LANDMARK_GRACE_MS) return null;
+      const missingAge = now - landmarkSeenAt[index];
+      const decay = Math.max(0, 1 - missingAge / LANDMARK_GRACE_MS);
+      const vx = Math.max(-MAX_PREDICTION_STEP, Math.min(MAX_PREDICTION_STEP, previous.vx || 0)) * decay;
+      const vy = Math.max(-MAX_PREDICTION_STEP, Math.min(MAX_PREDICTION_STEP, previous.vy || 0)) * decay;
+      const vz = Math.max(-MAX_PREDICTION_STEP, Math.min(MAX_PREDICTION_STEP, previous.vz || 0)) * decay;
+      return {
+        ...previous,
+        x: previous.x + vx,
+        y: previous.y + vy,
+        z: previous.z == null ? previous.z : previous.z + vz,
+        vx: vx * 0.72,
+        vy: vy * 0.72,
+        vz: vz * 0.72,
+        stale: true,
+      };
     }
     landmarkSeenAt[index] = now;
     if (!previous) return { ...point, stale: false };
     const movement = Math.hypot(point.x - previous.x, point.y - previous.y);
-    const response = Math.min(0.82, Math.max(0.16, 0.16 + (1 - smoothing) * 0.32 + movement * 2.8));
+    // Track the live camera closely while retaining just enough damping to
+    // remove single-frame landmark noise.
+    const response = Math.min(0.94, Math.max(0.34, 0.34 + (1 - smoothing) * 0.38 + movement * 3.2));
     return {
       ...point,
       x: previous.x + (point.x - previous.x) * response,
@@ -267,6 +281,9 @@ function smoothPose(pose, previousPose, now) {
       z: previous.z == null || point.z == null
         ? point.z
         : previous.z + (point.z - previous.z) * response,
+      vx: (point.x - previous.x) * response,
+      vy: (point.y - previous.y) * response,
+      vz: previous.z == null || point.z == null ? 0 : (point.z - previous.z) * response,
       stale: false,
     };
   });
@@ -311,13 +328,11 @@ function bodyPartStatus(parts) {
   return labels.join(' · ');
 }
 
-function hasMeaningfulMotion(pose, previousPose) {
-  if (!pose || !previousPose) return false;
-  return [11, 12, 15, 16, 23, 24].some(index => {
-    const current = pose[index];
-    const previous = previousPose[index];
-    return current && previous && Math.hypot(current.x - previous.x, current.y - previous.y) > 0.012;
-  });
+function setCameraPanelVisible(visible) {
+  cameraPanelVisible = visible;
+  trackingStage.classList.toggle('avatar-only', !visible);
+  cameraViewButton.textContent = visible ? '카메라 숨기기' : '카메라 보기';
+  cameraViewButton.setAttribute('aria-pressed', String(!visible));
 }
 
 function getCoverMetrics(width, height) {
@@ -380,12 +395,12 @@ function processFrame(now) {
     const pose = smoothPose(rawPose, latestPose, frameNow);
     const detectedParts = getDetectedBodyParts(pose, result);
     const reliable = hasReliablePose(pose);
-    if (reliable) {
-      const avatarMoved = hasMeaningfulMotion(pose, latestPose);
+    const trackable = detectedParts.torso || detectedParts.leftArm || detectedParts.rightArm ||
+      detectedParts.leftLeg || detectedParts.rightLeg;
+    if (pose && trackable) {
       latestPose = pose;
       lastReliablePoseAt = frameNow;
       updateLiveAvatar(result, pose);
-      if (avatarMoved) trackingStage.classList.add('avatar-only');
     }
     const holdingPose = Boolean(latestPose && frameNow - lastReliablePoseAt <= LOST_POSE_GRACE_MS);
 
@@ -397,6 +412,8 @@ function processFrame(now) {
 
     if (reliable) {
       detectionStatus.textContent = `인식 중 · ${bodyPartStatus(detectedParts)}`;
+    } else if (trackable) {
+      detectionStatus.textContent = `부분 추적 중 · ${bodyPartStatus(detectedParts)}`;
     } else if (holdingPose) {
       detectionStatus.textContent = `부분 인식 · ${bodyPartStatus(detectedParts) || '자세 유지'}`;
     } else {
@@ -415,6 +432,7 @@ async function startTracking() {
   completeOptionsButton.disabled = true;
   optionSetup.hidden = true;
   trackingStage.hidden = false;
+  setCameraPanelVisible(true);
   setupStatus.textContent = '카메라와 Pose Lite를 준비하고 있습니다.';
   try {
     cameraStream = await navigator.mediaDevices.getUserMedia({
@@ -466,7 +484,7 @@ function stopTracking() {
   lastReliablePoseAt = 0;
   landmarkSeenAt = new Array(33).fill(0);
   trackingStage.hidden = true;
-  trackingStage.classList.remove('avatar-only');
+  setCameraPanelVisible(true);
   optionSetup.hidden = false;
   completeOptionsButton.disabled = false;
   setupStatus.textContent = '';
@@ -741,6 +759,7 @@ avatarEditButton.addEventListener('click', () => {
   settingsButton.setAttribute('aria-expanded', 'false');
   avatarEditButton.setAttribute('aria-expanded', String(!liveAvatarEditor.hidden));
 });
+cameraViewButton.addEventListener('click', () => setCameraPanelVisible(!cameraPanelVisible));
 closeAvatarEditorButton.addEventListener('click', () => {
   liveAvatarEditor.hidden = true;
   avatarEditButton.setAttribute('aria-expanded', 'false');
@@ -768,5 +787,5 @@ initializeOptionControls();
 initializeAvatarColorControls();
 loadSettings();
 createPreview();
-applyOptionSelection('theme');
+applyOptionSelection('occupation');
 loadDriveConfig();
