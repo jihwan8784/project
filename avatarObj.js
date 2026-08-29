@@ -292,6 +292,19 @@ function buildPartAvatar(options) {
   const torso = makePart(new THREE.CapsuleGeometry(bodyWidth / 2, 0.72, 10, 20), clothing, 'torso');
   torso.scale.z = 0.68;
   torsoAnchor.add(torso);
+  // Keep the same base silhouette while making option changes readable through
+  // surface design, trims and profession-specific insignia.
+  const chestTrim = makePart(new THREE.BoxGeometry(bodyWidth * 0.58, 0.07, 0.035), accent, 'chestTrim');
+  chestTrim.position.set(0, 0.2, bodyWidth * 0.34);
+  torsoAnchor.add(chestTrim);
+  if (options.theme === 'mecha') {
+    [-1, 1].forEach(side => {
+      const armorLine = makePart(new THREE.BoxGeometry(0.055, 0.42, 0.04), accent, 'armorLine');
+      armorLine.position.set(side * bodyWidth * 0.25, 0.02, bodyWidth * 0.34);
+      armorLine.rotation.z = side * -0.18;
+      torsoAnchor.add(armorLine);
+    });
+  }
   const neck = new THREE.Group();
   neck.position.y = 0.72;
   torsoAnchor.add(neck);
@@ -383,6 +396,28 @@ function buildPartAvatar(options) {
     const helmet = makePart(new THREE.CylinderGeometry(0.37, 0.37, 0.13, 14), accent, 'helmet');
     helmet.position.y = 0.29;
     faceAnchor.add(helmet);
+  } else if (options.occupation === 'police') {
+    const cap = makePart(new THREE.CylinderGeometry(0.34, 0.36, 0.12, 16), clothing, 'policeCap');
+    cap.position.y = 0.32;
+    faceAnchor.add(cap);
+  } else if (options.occupation === 'doctor' || options.occupation === 'nurse') {
+    const badge = makePart(new THREE.BoxGeometry(0.18, 0.22, 0.035), accent, 'medicalBadge');
+    badge.position.set(0.2, 0.15, bodyWidth * 0.35);
+    torsoAnchor.add(badge);
+  } else if (options.occupation === 'chef') {
+    const hat = makePart(new THREE.CylinderGeometry(0.25, 0.34, 0.34, 16), makeAvatarMaterial('#f5f1e8', options), 'chefHat');
+    hat.position.y = 0.48;
+    faceAnchor.add(hat);
+  } else if (options.occupation === 'singer') {
+    const mic = makePart(new THREE.CapsuleGeometry(0.035, 0.2, 6, 12), accent, 'microphone');
+    mic.position.set(0.38, -0.04, 0.16);
+    mic.rotation.z = -0.35;
+    faceAnchor.add(mic);
+  } else if (options.occupation === 'drone-pilot' || options.occupation === 'hacker') {
+    const headset = makePart(new THREE.TorusGeometry(0.34, 0.028, 8, 24, Math.PI), accent, 'headset');
+    headset.rotation.z = Math.PI;
+    headset.position.y = 0.05;
+    faceAnchor.add(headset);
   }
 
   avatar.updateMatrixWorld(true);
@@ -390,16 +425,16 @@ function buildPartAvatar(options) {
   return { avatar, rig };
 }
 
-function addBackdrop(group, color) {
+function addBackdrop(group, color, texture = null) {
   const backdrop = new THREE.Mesh(
     new THREE.PlaneGeometry(18, 10),
-    new THREE.MeshBasicMaterial({ color }),
+    new THREE.MeshBasicMaterial({ color, map: texture }),
   );
   backdrop.position.set(0, 4.2, -5.5);
   group.add(backdrop);
 }
 
-function buildEnvironment(style) {
+function buildEnvironment(style, studioTexture = null) {
   const group = new THREE.Group();
   let backgroundColor = '#07101c';
   let floorColor = '#10192b';
@@ -458,7 +493,7 @@ function buildEnvironment(style) {
     floorRoughness = 0.32;
     gridPrimary = 0x4df4dc;
     gridSecondary = 0x264a73;
-    addBackdrop(group, '#050914');
+    addBackdrop(group, '#ffffff', studioTexture);
     const building = makeMaterial('#10172b', 0.72, 0.25);
     const cyan = makeMaterial('#133037', 0.34, 0.25, '#42f5dc', 1.1);
     const violet = makeMaterial('#201634', 0.34, 0.25, '#a270ff', 1.0);
@@ -545,6 +580,17 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
   let poseTargets = null;
   let environment = null;
   let currentBackgroundStyle = null;
+  let studioTexture = null;
+
+  new THREE.TextureLoader().load(
+    new URL('./assets/realistic-future-studio.png', import.meta.url).href,
+    texture => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      studioTexture = texture;
+      if (!disposed && options.backgroundStyle === 'neon-future-city') rebuildEnvironment();
+    },
+  );
 
   function rebuildEnvironment() {
     if (environment) {
@@ -555,7 +601,7 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
         else object.material?.dispose?.();
       });
     }
-    environment = buildEnvironment(options.backgroundStyle);
+    environment = buildEnvironment(options.backgroundStyle, studioTexture);
     currentBackgroundStyle = options.backgroundStyle;
     scene.add(environment.group);
     scene.background = new THREE.Color(environment.backgroundColor);
@@ -608,6 +654,7 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
       bodyTilt,
       depthLean,
       rootX: hipCenter ? clamp(((mirror ? 0.5 - hipCenter.x : hipCenter.x - 0.5) * 1.15), -0.7, 0.7) : 0,
+      rootY: hipCenter ? clamp((0.58 - hipCenter.y) * 1.35, -0.58, 0.58) : 0,
       upperArmL: getPoseDirection(pose, 11, 13, mirror),
       forearmL: getPoseDirection(pose, 13, 15, mirror),
       handL: getPoseDirection(pose, 15, 19, mirror),
@@ -651,6 +698,7 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     root.rotation.z += (targets.bodyTilt * 0.26 - root.rotation.z) * 0.12;
     root.rotation.x += (targets.depthLean * 0.32 - root.rotation.x) * 0.12;
     root.position.x += (targets.rootX - root.position.x) * 0.08;
+    root.position.y += (targets.rootY - root.position.y) * 0.08;
   }
 
   function renderFrame() {
@@ -776,6 +824,7 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
       else object.material?.dispose?.();
     });
     renderer.dispose();
+    studioTexture?.dispose();
     renderer.domElement.remove();
     scene.clear();
   }

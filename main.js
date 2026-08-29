@@ -24,6 +24,10 @@ const driveConnectButton = document.getElementById('driveConnectButton');
 const driveSaveButton = document.getElementById('driveSaveButton');
 const stopCameraButton = document.getElementById('stopCameraButton');
 const settingsButton = document.getElementById('settingsButton');
+const avatarEditButton = document.getElementById('avatarEditButton');
+const liveAvatarEditor = document.getElementById('liveAvatarEditor');
+const closeAvatarEditorButton = document.getElementById('closeAvatarEditorButton');
+const liveOptionStatus = document.getElementById('liveOptionStatus');
 const settingsPanel = document.getElementById('settingsPanel');
 const closeSettingsButton = document.getElementById('closeSettingsButton');
 const smoothingRange = document.getElementById('smoothingRange');
@@ -42,6 +46,25 @@ const optionSelects = {
   theme: document.getElementById('themeSelect'),
   hairStyle: document.getElementById('hairStyleSelect'),
 };
+const liveOptionSelects = {
+  gender: document.getElementById('liveGenderSelect'),
+  age: document.getElementById('liveAgeSelect'),
+  body: document.getElementById('liveBodySelect'),
+  occupation: document.getElementById('liveOccupationSelect'),
+  background: document.getElementById('liveBackgroundSelect'),
+  theme: document.getElementById('liveThemeSelect'),
+  hairStyle: document.getElementById('liveHairStyleSelect'),
+};
+const avatarColorInputs = {
+  skinColor: document.getElementById('skinColorInput'),
+  hairColor: document.getElementById('hairColorInput'),
+  eyeColor: document.getElementById('eyeColorInput'),
+  topColor: document.getElementById('topColorInput'),
+  bottomColor: document.getElementById('bottomColorInput'),
+  accentColor: document.getElementById('accentColorInput'),
+  shoeColor: document.getElementById('shoeColorInput'),
+};
+const resetAvatarColorsButton = document.getElementById('resetAvatarColorsButton');
 
 const CORE_LANDMARKS = [11, 12, 23, 24];
 const LOST_POSE_GRACE_MS = 650;
@@ -65,6 +88,7 @@ let googleAccessToken = '';
 let googleTokenExpiresAt = 0;
 let googleIdentityPromise = null;
 let currentSelection = readStoredSelection();
+let customAvatarColors = readStoredAvatarColors();
 
 const OPTION_LABELS = {
   gender: '성별', age: '연령대', body: '체형', occupation: '직업군', background: '배경', theme: '테마', hairStyle: '헤어스타일',
@@ -100,13 +124,30 @@ function showOptionReference(group) {
   optionReferenceCaption.textContent = `${OPTION_LABELS[group]} · ${label} · GLB 캐릭터`;
 }
 
-function applyOptionSelection(changedGroup = 'theme') {
+function applyOptionSelection(changedGroup = 'theme', sourceSelects = optionSelects) {
   currentSelection = normalizeSelection(Object.fromEntries(
-    Object.entries(optionSelects).map(([key, select]) => [key, select.value]),
+    Object.entries(sourceSelects).map(([key, select]) => [key, select.value]),
   ));
   localStorage.setItem('poseVisionAvatarSelection', JSON.stringify(currentSelection));
-  previewAvatar?.updateAppearance(selectionToAppearance(currentSelection));
+  previewAvatar?.updateAppearance(currentAppearance());
+  liveAvatar?.updateAppearance(currentAppearance());
+  Object.entries(optionSelects).forEach(([key, select]) => { select.value = currentSelection[key]; });
+  Object.entries(liveOptionSelects).forEach(([key, select]) => { select.value = currentSelection[key]; });
+  if (liveOptionStatus) liveOptionStatus.textContent = `${selectedLabel(changedGroup, currentSelection[changedGroup])} 적용 완료`;
   showOptionReference(changedGroup);
+}
+
+function readStoredAvatarColors() {
+  try {
+    const stored = JSON.parse(localStorage.getItem('poseVisionAvatarStyle') || '{}');
+    return Object.fromEntries(Object.keys(avatarColorInputs)
+      .filter(key => /^#[0-9a-f]{6}$/i.test(stored[key]))
+      .map(key => [key, stored[key]]));
+  } catch { return {}; }
+}
+
+function currentAppearance() {
+  return { ...selectionToAppearance(currentSelection), ...customAvatarColors };
 }
 
 function initializeOptionControls() {
@@ -131,6 +172,24 @@ function initializeOptionControls() {
       applyOptionSelection(group);
     });
   });
+
+  fillSelect(liveOptionSelects.gender, OPTION_GROUPS.gender, currentSelection.gender);
+  fillSelect(liveOptionSelects.age, OPTION_GROUPS.age, currentSelection.age);
+  fillSelect(liveOptionSelects.body, OPTION_GROUPS.bodyByGender[currentSelection.gender], currentSelection.body);
+  fillSelect(liveOptionSelects.occupation, OPTION_GROUPS.occupation, currentSelection.occupation);
+  fillSelect(liveOptionSelects.background, OPTION_GROUPS.background, currentSelection.background);
+  fillSelect(liveOptionSelects.theme, OPTION_GROUPS.theme, currentSelection.theme);
+  fillSelect(liveOptionSelects.hairStyle, OPTION_GROUPS.hairStyle, currentSelection.hairStyle);
+  Object.entries(liveOptionSelects).forEach(([group, select]) => {
+    select.addEventListener('change', () => {
+      if (group === 'gender') {
+        currentSelection.gender = select.value;
+        const bodies = OPTION_GROUPS.bodyByGender[currentSelection.gender];
+        fillSelect(liveOptionSelects.body, bodies, bodies.some(item => item.value === liveOptionSelects.body.value) ? liveOptionSelects.body.value : 'standard');
+      }
+      applyOptionSelection(group, liveOptionSelects);
+    });
+  });
 }
 
 function readStoredAvatarOptions() {
@@ -138,7 +197,30 @@ function readStoredAvatarOptions() {
   try {
     stored = JSON.parse(localStorage.getItem('poseVisionAvatarStyle') || '{}');
   } catch {}
-  return { ...DEFAULT_AVATAR_OPTIONS, ...stored, ...selectionToAppearance(currentSelection) };
+  return { ...DEFAULT_AVATAR_OPTIONS, ...selectionToAppearance(currentSelection), ...stored };
+}
+
+function initializeAvatarColorControls() {
+  const appearance = { ...DEFAULT_AVATAR_OPTIONS, ...currentAppearance() };
+  Object.entries(avatarColorInputs).forEach(([key, input]) => {
+    input.value = appearance[key];
+    input.addEventListener('input', () => {
+      customAvatarColors[key] = input.value;
+      localStorage.setItem('poseVisionAvatarStyle', JSON.stringify(customAvatarColors));
+      previewAvatar?.updateAppearance(currentAppearance());
+      liveAvatar?.updateAppearance(currentAppearance());
+      liveOptionStatus.textContent = `${input.previousElementSibling.textContent} 색상 적용 완료`;
+    });
+  });
+  resetAvatarColorsButton.addEventListener('click', () => {
+    customAvatarColors = {};
+    localStorage.removeItem('poseVisionAvatarStyle');
+    const defaults = { ...DEFAULT_AVATAR_OPTIONS, ...selectionToAppearance(currentSelection) };
+    Object.entries(avatarColorInputs).forEach(([key, input]) => { input.value = defaults[key]; });
+    previewAvatar?.updateAppearance(defaults);
+    liveAvatar?.updateAppearance(defaults);
+    liveOptionStatus.textContent = '직업·테마 기본색으로 복원했습니다';
+  });
 }
 
 function createPreview() {
@@ -223,6 +305,15 @@ function hasReliablePose(pose) {
   return reliableCount >= 2 && [11, 12].some(reliable) && [23, 24].some(reliable);
 }
 
+function hasMeaningfulMotion(pose, previousPose) {
+  if (!pose || !previousPose) return false;
+  return [11, 12, 15, 16, 23, 24].some(index => {
+    const current = pose[index];
+    const previous = previousPose[index];
+    return current && previous && Math.hypot(current.x - previous.x, current.y - previous.y) > 0.012;
+  });
+}
+
 function getCoverMetrics(width, height) {
   const videoWidth = webcamVideo.videoWidth || width;
   const videoHeight = webcamVideo.videoHeight || height;
@@ -283,9 +374,11 @@ function processFrame(now) {
     const pose = smoothPose(rawPose, latestPose, frameNow);
     const reliable = hasReliablePose(pose);
     if (reliable) {
+      const avatarMoved = hasMeaningfulMotion(pose, latestPose);
       latestPose = pose;
       lastReliablePoseAt = frameNow;
       updateLiveAvatar(result, pose);
+      if (avatarMoved) trackingStage.classList.add('avatar-only');
     }
     const holdingPose = Boolean(latestPose && frameNow - lastReliablePoseAt <= LOST_POSE_GRACE_MS);
 
@@ -313,6 +406,8 @@ function processFrame(now) {
 
 async function startTracking() {
   completeOptionsButton.disabled = true;
+  optionSetup.hidden = true;
+  trackingStage.hidden = false;
   setupStatus.textContent = '카메라와 Pose Lite를 준비하고 있습니다.';
   try {
     cameraStream = await navigator.mediaDevices.getUserMedia({
@@ -324,8 +419,6 @@ async function startTracking() {
 
     previewAvatar?.dispose();
     previewAvatar = null;
-    optionSetup.hidden = true;
-    trackingStage.hidden = false;
     liveAvatarOverlay.hidden = false;
     liveAvatarOverlay.classList.remove('is-visible');
     liveAvatar = create2DAvatar(liveAvatarOverlay, readStoredAvatarOptions(), {
@@ -346,7 +439,7 @@ async function startTracking() {
     console.error('Camera start failed.', error);
     cameraStream?.getTracks().forEach(track => track.stop());
     cameraStream = null;
-    setupStatus.textContent = `시작 실패: ${error.message}`;
+    detectionStatus.textContent = `카메라 시작 실패: ${error.message}`;
     completeOptionsButton.disabled = false;
   }
 }
@@ -366,6 +459,7 @@ function stopTracking() {
   lastReliablePoseAt = 0;
   landmarkSeenAt = new Array(33).fill(0);
   trackingStage.hidden = true;
+  trackingStage.classList.remove('avatar-only');
   optionSetup.hidden = false;
   completeOptionsButton.disabled = false;
   setupStatus.textContent = '';
@@ -634,6 +728,16 @@ settingsButton.addEventListener('click', () => {
   settingsPanel.hidden = !settingsPanel.hidden;
   settingsButton.setAttribute('aria-expanded', String(!settingsPanel.hidden));
 });
+avatarEditButton.addEventListener('click', () => {
+  liveAvatarEditor.hidden = !liveAvatarEditor.hidden;
+  settingsPanel.hidden = true;
+  settingsButton.setAttribute('aria-expanded', 'false');
+  avatarEditButton.setAttribute('aria-expanded', String(!liveAvatarEditor.hidden));
+});
+closeAvatarEditorButton.addEventListener('click', () => {
+  liveAvatarEditor.hidden = true;
+  avatarEditButton.setAttribute('aria-expanded', 'false');
+});
 closeSettingsButton.addEventListener('click', () => {
   settingsPanel.hidden = true;
   settingsButton.setAttribute('aria-expanded', 'false');
@@ -654,7 +758,9 @@ window.addEventListener('pagehide', () => {
 }, { once: true });
 
 initializeOptionControls();
+initializeAvatarColorControls();
 loadSettings();
 createPreview();
 applyOptionSelection('theme');
 loadDriveConfig();
+startTracking();
