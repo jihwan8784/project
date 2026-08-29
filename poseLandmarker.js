@@ -1,35 +1,28 @@
 import {
   PoseLandmarker,
-  HandLandmarker,
   FaceLandmarker,
   FilesetResolver,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/+esm";
 
 let poseLandmarker = null;
-let handLandmarker = null;
 let faceLandmarker = null;
 let visionPromise = null;
-let auxiliaryInitPromise = null;
-let currentQuality = 'full';
+let faceInitPromise = null;
 let frameCounter = 0;
-let cachedFaceResult = { faceLandmarks: [] };
+let cachedFaceResult = { faceLandmarks: [], faceBlendshapes: [] };
 let initializationGeneration = 0;
 let lastVideoTimestamp = -1;
 let lastAuxiliaryWarningAt = 0;
 
 const AUXILIARY_WARNING_INTERVAL_MS = 5000;
-const MAX_PEOPLE = 4;
+const MAX_PEOPLE = 1;
 
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
 
-const MODEL_URLS = {
-  lite: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
-  full: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task",
-  heavy: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task",
-};
+// Google 공식 샘플과 동일한 고정 버전 경로를 사용한다.
+const POSE_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
 
-const HAND_MODEL_URL =
-  "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 const FACE_MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
@@ -54,64 +47,37 @@ async function createWithDelegateFallback(TaskClass, vision, options, label) {
   }
 }
 
-async function initAuxiliaryLandmarkers(vision) {
-  if (handLandmarker && faceLandmarker) return;
-  if (auxiliaryInitPromise) return auxiliaryInitPromise;
+async function initFaceLandmarker(vision) {
+  if (faceLandmarker) return;
+  if (faceInitPromise) return faceInitPromise;
 
-  auxiliaryInitPromise = (async () => {
-    const [handResult, faceResult] = await Promise.allSettled([
-      createWithDelegateFallback(
-        HandLandmarker,
-        vision,
-        {
-          baseOptions: { modelAssetPath: HAND_MODEL_URL },
-          runningMode: 'VIDEO',
-          numHands: MAX_PEOPLE * 2,
-          minHandDetectionConfidence: 0.40,
-          minHandPresenceConfidence: 0.35,
-          minTrackingConfidence: 0.45,
-        },
-        'HandLandmarker',
-      ),
-      createWithDelegateFallback(
-        FaceLandmarker,
-        vision,
-        {
-          baseOptions: { modelAssetPath: FACE_MODEL_URL },
-          runningMode: 'VIDEO',
-          numFaces: MAX_PEOPLE,
-          minFaceDetectionConfidence: 0.50,
-          minFacePresenceConfidence: 0.45,
-          minTrackingConfidence: 0.50,
-          outputFaceBlendshapes: false,
-          outputFacialTransformationMatrixes: false,
-        },
-        'FaceLandmarker',
-      ),
-    ]);
-
-    if (handResult.status === 'fulfilled') handLandmarker = handResult.value;
-    else console.warn('HandLandmarker initialization failed; continuing without hands.', handResult.reason);
-
-    if (faceResult.status === 'fulfilled') faceLandmarker = faceResult.value;
-    else console.warn('FaceLandmarker initialization failed; continuing without face landmarks.', faceResult.reason);
-  })();
+  faceInitPromise = createWithDelegateFallback(
+    FaceLandmarker,
+    vision,
+    {
+      baseOptions: { modelAssetPath: FACE_MODEL_URL },
+      runningMode: 'VIDEO',
+      numFaces: MAX_PEOPLE,
+      minFaceDetectionConfidence: 0.45,
+      minFacePresenceConfidence: 0.40,
+      minTrackingConfidence: 0.45,
+      outputFaceBlendshapes: true,
+      outputFacialTransformationMatrixes: false,
+    },
+    'FaceLandmarker',
+  ).then(result => {
+    faceLandmarker = result;
+  });
 
   try {
-    await auxiliaryInitPromise;
+    await faceInitPromise;
   } catch (error) {
-    auxiliaryInitPromise = null;
-    throw error;
+    faceInitPromise = null;
+    console.warn('FaceLandmarker initialization failed; continuing without facial expressions.', error);
   }
 }
 
-export async function initPoseLandmarker(quality) {
-  if (!MODEL_URLS[quality]) {
-    console.error('Invalid quality value:', quality);
-    alert('잘못된 모델 정확도 값입니다. 다시 선택해주세요.');
-    return false;
-  }
-
+export async function initPoseLandmarker() {
   const generation = ++initializationGeneration;
 
   try {
@@ -124,12 +90,12 @@ export async function initPoseLandmarker(quality) {
       PoseLandmarker,
       vision,
       {
-        baseOptions: { modelAssetPath: MODEL_URLS[quality] },
+        baseOptions: { modelAssetPath: POSE_MODEL_URL },
         runningMode: 'VIDEO',
         numPoses: MAX_PEOPLE,
-        // 기존 0.5보다 낮춰 몸의 일부만 보일 때도 포즈 후보가 쉽게 유지되도록 한다.
-        minPoseDetectionConfidence: 0.25,
-        minPosePresenceConfidence: 0.20,
+        // 한쪽 팔/다리가 가려져도 추적이 쉽게 끊기지 않게 완화한다.
+        minPoseDetectionConfidence: 0.32,
+        minPosePresenceConfidence: 0.30,
         minTrackingConfidence: 0.40,
       },
       'PoseLandmarker',
@@ -142,19 +108,17 @@ export async function initPoseLandmarker(quality) {
 
     const previousPoseLandmarker = poseLandmarker;
     poseLandmarker = nextPoseLandmarker;
-    currentQuality = quality;
     previousPoseLandmarker?.close();
 
-    // 손/얼굴은 Pose와 독립적으로 검출해서 몸 전체 포즈가 실패해도 해당 부위는 표시한다.
-    await initAuxiliaryLandmarkers(vision);
+    await initFaceLandmarker(vision);
 
     frameCounter = 0;
-    cachedFaceResult = { faceLandmarks: [] };
-    console.log('Pose + Hand + Face landmarkers initialized');
+    cachedFaceResult = { faceLandmarks: [], faceBlendshapes: [] };
+    console.log('Pose Lite 3D + Face landmarkers initialized');
     return true;
   } catch (error) {
     console.error('Landmarker initialization error:', error);
-    alert('포즈/손/얼굴 인식 모델 초기화에 실패했습니다. 네트워크 상태를 확인하세요.');
+    alert('포즈/얼굴 인식 모델 초기화에 실패했습니다. 네트워크 상태를 확인하세요.');
     return false;
   }
 }
@@ -162,13 +126,11 @@ export async function initPoseLandmarker(quality) {
 export function closeLandmarkers() {
   initializationGeneration += 1;
   poseLandmarker?.close();
-  handLandmarker?.close();
   faceLandmarker?.close();
   poseLandmarker = null;
-  handLandmarker = null;
   faceLandmarker = null;
-  auxiliaryInitPromise = null;
-  cachedFaceResult = { faceLandmarks: [] };
+  faceInitPromise = null;
+  cachedFaceResult = { faceLandmarks: [], faceBlendshapes: [] };
   frameCounter = 0;
   lastVideoTimestamp = -1;
 }
@@ -178,6 +140,22 @@ function warnAuxiliaryDetection(label, error) {
   if (now - lastAuxiliaryWarningAt < AUXILIARY_WARNING_INTERVAL_MS) return;
   lastAuxiliaryWarningAt = now;
   console.warn(`${label} detection skipped for this frame.`, error);
+}
+
+function mergeWorldCoordinates(normalizedPoses, worldPoses) {
+  return (normalizedPoses ?? []).map((pose, poseIndex) => {
+    const world = worldPoses?.[poseIndex] ?? [];
+    return pose.map((point, index) => {
+      const worldPoint = world[index];
+      return {
+        ...point,
+        // main.js의 smoothing을 거쳐도 살아남도록 같은 landmark 객체에 붙인다.
+        worldX: Number.isFinite(worldPoint?.x) ? worldPoint.x : null,
+        worldY: Number.isFinite(worldPoint?.y) ? worldPoint.y : null,
+        worldZ: Number.isFinite(worldPoint?.z) ? worldPoint.z : null,
+      };
+    });
+  });
 }
 
 export function getPoseData(videoElement, requestedTimestamp = performance.now()) {
@@ -191,19 +169,7 @@ export function getPoseData(videoElement, requestedTimestamp = performance.now()
 
   const poseResult = poseLandmarker.detectForVideo(videoElement, timestamp);
 
-  let handResult = { landmarks: [], handedness: [], worldLandmarks: [] };
-  if (handLandmarker) {
-    try {
-      handResult = handLandmarker.detectForVideo(videoElement, timestamp);
-    } catch (error) {
-      warnAuxiliaryDetection('HandLandmarker', error);
-    }
-  }
-
-  // 얼굴 478점을 매 프레임 처리하면 저사양 기기에서 FPS가 크게 떨어질 수 있어
-  // 다인 얼굴 검출 부하를 고려해 Lite=4프레임, Full=3프레임, Heavy=2프레임마다 갱신한다.
-  const faceInterval = currentQuality === 'heavy' ? 2 : currentQuality === 'lite' ? 4 : 3;
-  if (faceLandmarker && frameCounter % faceInterval === 0) {
+  if (faceLandmarker && frameCounter % 2 === 0) {
     try {
       cachedFaceResult = faceLandmarker.detectForVideo(videoElement, timestamp);
     } catch (error) {
@@ -212,13 +178,13 @@ export function getPoseData(videoElement, requestedTimestamp = performance.now()
   }
   frameCounter += 1;
 
+  const worldLandmarks = poseResult?.worldLandmarks ?? [];
+  const landmarks = mergeWorldCoordinates(poseResult?.landmarks ?? [], worldLandmarks);
+
   return {
-    // 기존 코드 호환용: body pose는 그대로 landmarks / worldLandmarks에 둔다.
-    landmarks: poseResult?.landmarks ?? [],
-    worldLandmarks: poseResult?.worldLandmarks ?? [],
-    handLandmarks: handResult?.landmarks ?? [],
-    handWorldLandmarks: handResult?.worldLandmarks ?? [],
-    handedness: handResult?.handedness ?? [],
+    landmarks,
+    worldLandmarks,
     faceLandmarks: cachedFaceResult?.faceLandmarks ?? [],
+    faceBlendshapes: cachedFaceResult?.faceBlendshapes ?? [],
   };
 }

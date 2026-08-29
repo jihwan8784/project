@@ -1,43 +1,33 @@
 # Pose Vision
 
-## 서버 실행
-
-PowerShell에서 프로젝트 폴더로 이동한 뒤 아래 명령을 실행합니다.
+## 실행
 
 ```powershell
-npx http-server -c-1 -p 8000
+Copy-Item .env.example .env
+notepad .env
+node server.cjs
 ```
 
-브라우저에서 다음 주소를 엽니다.
+브라우저에서 `http://127.0.0.1:8000/main.html`을 엽니다.
 
-```text
-http://127.0.0.1:8000/main.html
-```
+## 현재 흐름
 
-처음 실행할 때 `http-server` 설치 확인 메시지가 나오면 `y`를 입력합니다.
-카메라 권한을 허용해야 영상과 포즈 인식이 작동합니다.
+1. 성별·연령대·체형·직업군·배경·테마 선택
+2. 카메라 시작 및 MediaPipe Pose Lite 트래킹
+3. 사람 관절 위치에 2D VTuber 아바타 합성
+4. 현재 화면 PNG 캡처
+5. 선택적으로 Google Drive 저장
 
-## 인식 기능
+## 구성
 
- 실시간 화면은 최대 4명의 Pose·Face와 최대 8개의 손을 추적하며, 최대 2,212개 랜드마크를 처리합니다.
- 사람별 추적 ID와 적응형 흔들림 보정을 적용하고, 새 비디오 프레임에서만 추론합니다.
- 설정 버튼에서 다음 항목을 실행 중 선택할 수 있습니다.
+- `main.html`, `main.css`, `main.js`: 화면과 실시간 합성
+- `poseLandmarker.js`, `ui.js`: 포즈·표정 인식과 스켈레톤
+- `avatarObj.js`: 파트형 3D 아바타 생성, 포즈 연결, 사진 배경 렌더링
+- `avatarOptions.js`: 아바타 옵션 목록과 스타일 매핑
+- `background/`: 배경 옵션에 사용하는 이미지 4장
+- `server.cjs`: 정적 서버, Gemini 및 Google 설정 API
+- `GOOGLE_DRIVE_SETUP.md`: Google Drive 연결 방법
 
- - 모델 품질: Lite, Full, Heavy
- - 흔들림 보정 강도
- - 신뢰도 기준
- - 스켈레톤 표시 여부
- - 좌우 반전 여부
- - 디버그 정보 및 FPS 표시
-
- 설정값은 브라우저의 `localStorage`에 저장되어 다음 실행에도 유지됩니다.
- 카메라 시작/중지 버튼으로 카메라 스트림을 직접 제어할 수도 있습니다.
- 여러 사람 중 가장 먼저 안정적으로 인식된 사람의 포즈를 아바타 화면에서 변환하고 커스텀할 수 있습니다.
-
-## 버추얼 아바타 스튜디오
-
-- 저장된 Pose World Landmark를 절차적 3D 휴먼의 자세와 체형에 적용
-- 얼굴형, 눈동자, 피부, 헤어 5종, 체형과 신체 비율 편집
-- 캐주얼·스포츠·포멀 의상과 액세서리 조합
-- PBR 재질, 스튜디오 조명, 그림자, 카메라 회전·확대 지원
-- 랜덤 생성, 스타일 프리셋 저장, PNG 이미지 캡처 지원
+아바타는 코드에서 생성되는 파트형 3D 모델을 사용하며, 배경은 `background` 폴더의 이미지를 사용합니다. Gemini 분석 API는 선택 기능으로 서버에 유지되어 있습니다.
+npm install -g @google/gemini-cli
+gemini
