@@ -150,6 +150,9 @@ function buildGlbRig(model) {
   const find = name => model.getObjectByName(name) || null;
   return {
     torso: find('Hips'),
+    spine: find('Spine'),
+    chest: find('Chest'),
+    neck: find('Neck'),
     face: find('Head'),
     leftUpperArm: find('LeftUpperArm'),
     leftForearm: find('LeftForearm'),
@@ -247,6 +250,15 @@ function lockBoneAtRest(bone) {
   const rest = bone?.userData?.poseVisionRestLocalQuaternion;
   if (!bone || !rest) return;
   bone.quaternion.copy(rest);
+  bone.updateMatrixWorld(true);
+}
+
+function setBoneEulerOffset(bone, x, y, z, influence = 0.3) {
+  const rest = bone?.userData?.poseVisionRestLocalQuaternion;
+  if (!bone || !rest) return;
+  tempQuaternionA.setFromEuler(new THREE.Euler(x, y, z, 'XYZ'));
+  tempQuaternionB.copy(rest).multiply(tempQuaternionA);
+  bone.quaternion.slerp(tempQuaternionB, influence);
   bone.updateMatrixWorld(true);
 }
 
@@ -835,6 +847,13 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     setBoneDirection3D(rig.rightShin, targets.shinR, 0.84);
     setBoneDirection3D(rig.rightFoot, targets.footR, 0.78);
 
+    setBoneEulerOffset(rig.spine, targets.depthLean * 0.24, 0, targets.bodyTilt * 0.28, 0.36);
+    setBoneEulerOffset(rig.chest, targets.depthLean * 0.20, 0, targets.bodyTilt * 0.34, 0.38);
+    if (targets.head) {
+      setBoneEulerOffset(rig.neck, targets.head.pitch * 0.30, targets.head.yaw * 0.34, targets.head.roll * 0.28, 0.30);
+      setBoneEulerOffset(rig.face, targets.head.pitch * 0.70, targets.head.yaw * 0.72, targets.head.roll * 0.72, 0.34);
+    }
+
     // Arms ease back to rest when tracking is incomplete. Legs stay in their
     // neutral standing pose whenever their landmarks are unavailable.
     if (!targets.upperArmL) restoreBoneTowardRest(rig.leftUpperArm);
@@ -853,11 +872,6 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     root.rotation.z += (targets.bodyTilt * 0.82 - root.rotation.z) * 0.42;
     root.rotation.x += (targets.depthLean * 0.76 - root.rotation.x) * 0.40;
     if (targets.bodyYaw != null) root.rotation.y = easeAngle(root.rotation.y, targets.bodyYaw, 0.36);
-    if (rig.face && targets.head) {
-      rig.face.rotation.y += (targets.head.yaw - rig.face.rotation.y) * 0.24;
-      rig.face.rotation.x += (targets.head.pitch - rig.face.rotation.x) * 0.22;
-      rig.face.rotation.z += (targets.head.roll - rig.face.rotation.z) * 0.22;
-    }
     root.position.x += (targets.rootX - root.position.x) * 0.42;
     root.position.y += (targets.rootY - root.position.y) * 0.38;
     const targetScale = Number(options.heightScale || 1) * targets.depthScale;
@@ -870,16 +884,12 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     [rig.leftUpperArm, rig.leftForearm, rig.leftHand,
       rig.rightUpperArm, rig.rightForearm, rig.rightHand,
       rig.leftThigh, rig.leftShin, rig.leftFoot,
-      rig.rightThigh, rig.rightShin, rig.rightFoot]
+      rig.rightThigh, rig.rightShin, rig.rightFoot,
+      rig.spine, rig.chest, rig.neck, rig.face]
       .forEach(bone => restoreBoneTowardRest(bone, 0.14));
     root.rotation.x += (0 - root.rotation.x) * 0.14;
     root.rotation.z += (0 - root.rotation.z) * 0.14;
     root.rotation.y = easeAngle(root.rotation.y, 0, 0.10);
-    if (rig.face) {
-      rig.face.rotation.x += (0 - rig.face.rotation.x) * 0.12;
-      rig.face.rotation.y = easeAngle(rig.face.rotation.y, 0, 0.12);
-      rig.face.rotation.z += (0 - rig.face.rotation.z) * 0.12;
-    }
     root.position.x += (0 - root.position.x) * 0.12;
     root.position.y += (0 - root.position.y) * 0.12;
     const neutralScale = Number(options.heightScale || 1);

@@ -74,6 +74,9 @@ def make_model(gender, job):
 
     sphere("Torso", (0, 0, 1.22), ((0.30 if female else 0.34), 0.19, 0.36), 0)
     sphere("Pelvis", (0, 0, 0.86), ((0.28 if female else 0.25), 0.18, 0.19), 1)
+    sphere("HeadMesh", (0, 0, 1.82), ((0.145 if female else 0.155), 0.13, 0.19), 3)
+    sphere("HairMesh", (0, 0.018, 1.88), ((0.154 if female else 0.164), 0.137, 0.16), 4)
+    box("NeckMesh", (0, 0, 1.59), (.072, .065, .09), 3, bevel=.025)
     for side, sign in (("Left", 1), ("Right", -1)):
         limb(side+"UpperArmMesh", (shoulder*sign,0,1.43), (0.42*sign,0,1.16), .075, 0)
         sphere(side+"Elbow", (0.42*sign,0,1.16), (.078,.072,.078), 2)
@@ -172,7 +175,7 @@ def make_model(gender, job):
     groups={b.name:body.vertex_groups.new(name=b.name) for b in arm.data.bones}
     def dist(point,b):
         a=b.head_local; d=b.tail_local-a; t=max(0,min(1,(point-a).dot(d)/max(d.length_squared,1e-8))); return (point-(a+d*t)).length
-    deform=[b for b in arm.data.bones if b.name!="Head"]
+    deform=list(arm.data.bones)
     for v in body.data.vertices:
         nearest=sorted(((dist(v.co,b),b.name) for b in deform))[:3]; base=nearest[0][0]
         ws=[(n,math.exp(-((d-base)/.11)**2)) for d,n in nearest]; total=sum(w for _,w in ws)
