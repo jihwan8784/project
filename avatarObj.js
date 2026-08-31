@@ -761,6 +761,12 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
     const pose = result?.poseLandmarks || result?.landmarks?.[0] || null;
     if (!pose?.length) return null;
     const mirror = Boolean(result?.mapping?.mirror);
+    const avatarLeft = mirror
+      ? { shoulder: 12, elbow: 14, wrist: 16, hand: 20, hip: 24, knee: 26, ankle: 28, foot: 32 }
+      : { shoulder: 11, elbow: 13, wrist: 15, hand: 19, hip: 23, knee: 25, ankle: 27, foot: 31 };
+    const avatarRight = mirror
+      ? { shoulder: 11, elbow: 13, wrist: 15, hand: 19, hip: 23, knee: 25, ankle: 27, foot: 31 }
+      : { shoulder: 12, elbow: 14, wrist: 16, hand: 20, hip: 24, knee: 26, ankle: 28, foot: 32 };
 
     const shoulderCenter = averageNormalized([
       getNormalizedPoint(pose, 11),
@@ -814,18 +820,18 @@ export function create2DAvatar(container, initialOptions = {}, runtimeOptions = 
       depthScale,
       bodyYaw: getBodyYaw(leftShoulder, rightShoulder, mirror),
       head: getHeadTargets(pose, mirror),
-      upperArmL: constrainTrackedLimb(getPoseDirection(pose, 11, 13, mirror), 'left', 'upperArm'),
-      forearmL: constrainTrackedLimb(getPoseDirection(pose, 13, 15, mirror), 'left', 'forearm'),
-      handL: getPoseDirection(pose, 15, 19, mirror),
-      upperArmR: constrainTrackedLimb(getPoseDirection(pose, 12, 14, mirror), 'right', 'upperArm'),
-      forearmR: constrainTrackedLimb(getPoseDirection(pose, 14, 16, mirror), 'right', 'forearm'),
-      handR: getPoseDirection(pose, 16, 20, mirror),
-      thighL: constrainTrackedLimb(getPoseDirection(pose, 23, 25, mirror), 'left', 'leg'),
-      shinL: constrainTrackedLimb(getPoseDirection(pose, 25, 27, mirror), 'left', 'leg'),
-      footL: getPoseDirection(pose, 27, 31, mirror),
-      thighR: constrainTrackedLimb(getPoseDirection(pose, 24, 26, mirror), 'right', 'leg'),
-      shinR: constrainTrackedLimb(getPoseDirection(pose, 26, 28, mirror), 'right', 'leg'),
-      footR: getPoseDirection(pose, 28, 32, mirror),
+      upperArmL: constrainTrackedLimb(getPoseDirection(pose, avatarLeft.shoulder, avatarLeft.elbow, mirror), 'left', 'upperArm'),
+      forearmL: constrainTrackedLimb(getPoseDirection(pose, avatarLeft.elbow, avatarLeft.wrist, mirror), 'left', 'forearm'),
+      handL: getPoseDirection(pose, avatarLeft.wrist, avatarLeft.hand, mirror),
+      upperArmR: constrainTrackedLimb(getPoseDirection(pose, avatarRight.shoulder, avatarRight.elbow, mirror), 'right', 'upperArm'),
+      forearmR: constrainTrackedLimb(getPoseDirection(pose, avatarRight.elbow, avatarRight.wrist, mirror), 'right', 'forearm'),
+      handR: getPoseDirection(pose, avatarRight.wrist, avatarRight.hand, mirror),
+      thighL: constrainTrackedLimb(getPoseDirection(pose, avatarLeft.hip, avatarLeft.knee, mirror), 'left', 'leg'),
+      shinL: constrainTrackedLimb(getPoseDirection(pose, avatarLeft.knee, avatarLeft.ankle, mirror), 'left', 'leg'),
+      footL: getPoseDirection(pose, avatarLeft.ankle, avatarLeft.foot, mirror),
+      thighR: constrainTrackedLimb(getPoseDirection(pose, avatarRight.hip, avatarRight.knee, mirror), 'right', 'leg'),
+      shinR: constrainTrackedLimb(getPoseDirection(pose, avatarRight.knee, avatarRight.ankle, mirror), 'right', 'leg'),
+      footR: getPoseDirection(pose, avatarRight.ankle, avatarRight.foot, mirror),
       neck: getPoseDirection(pose, 11, 0, mirror),
     };
   }
